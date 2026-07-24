@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+uv.lock
+
+# Project artifacts and private inputs
+artifacts/
+!artifacts/.gitkeep
+data/private_inputs/**
+!data/private_inputs/.gitkeep
+data/samples/synthetic_native/**
+!data/samples/synthetic_native/.gitkeep
+data/samples/synthetic_scanned/**
+!data/samples/synthetic_scanned/.gitkeep
+*.pdf
+!docs/**/*.pdf
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Planning inputs (also excluded via .git/info/exclude)
+GROK_IMPLEMENTATION_BLUEPRINT.md
+GROK_MASTER_PROMPT.md
+tmp/

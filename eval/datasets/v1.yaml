@@ -1,0 +1,73 @@
+version: 1
+seed: 42
+cases:
+  - id: native_revision
+    description: Controlled synthetic native revision pair
+    pid_a: PID-SYN-A
+    pid_b: PID-SYN-B
+    mismatch_mode: warn
+    expect_mismatch: false
+    ground_truth_path: data/samples/synthetic_native/ground_truth.json
+    qa:
+      - id: delta_setpoint
+        question: What changed near 26-PIT-9062?
+        must_include: ["250"]
+        require_citation: true
+        acceptable_source_prefixes: ["D:", "A:", "B:"]
+      - id: duty_rev_b
+        question: What is the duty in revision B?
+        must_include: ["12500"]
+        require_citation: true
+        acceptable_source_prefixes: ["B:", "D:"]
+      - id: high_conf
+        question: Summarize only high-confidence changes.
+        must_include: []
+        require_citation: true
+        acceptable_source_prefixes: ["D:"]
+      - id: no_motor_vendor
+        question: Did the motor vendor change?
+        unsupported: true
+        must_include: []
+        require_citation: false
+      - id: unsupported
+        question: What is the CEO favorite color on this drawing?
+        unsupported: true
+        must_include: []
+        require_citation: false
+    retrieval:
+      - query: "26-PIT-9062"
+        expect_recall_at_1: true
+
+  - id: scanned_revision
+    description: Scanned variant of the synthetic pair
+    pid_a: PID-SYN-SCAN-A
+    pid_b: PID-SYN-SCAN-B
+    mismatch_mode: warn
+    expect_mismatch: false
+    ground_truth_path: data/samples/synthetic_scanned/ground_truth.json
+    optional_if_ocr_missing: true
+    qa:
+      - id: scan_delta
+        question: What changed about the duty?
+        must_include: []
+        require_citation: true
+        acceptable_source_prefixes: ["D:", "A:", "B:"]
+      - id: scan_unsupported
+        question: Who approved the vendor painting scheme?
+        unsupported: true
+        must_include: []
+        require_citation: false
+
+  - id: lift_export_mismatch
+    description: Lift vs export pair mismatch
+    pid_a: PID-LIFT
+    pid_b: PID-EXPORT
+    mismatch_mode: warn
+    expect_mismatch: true
+    ground_truth_path: null
+    qa:
+      - id: mismatch_summary
+        question: Summarize only high-confidence changes.
+        must_include: []
+        require_citation: true
+        acceptable_source_prefixes: ["D:"]

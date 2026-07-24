@@ -1,0 +1,10 @@
+services:
+  delta-chat:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - LLM_PROVIDER=extractive
+      - CAPTURE_LLM_CONTENT=true
+    volumes:
+      - ./artifacts:/app/artifacts

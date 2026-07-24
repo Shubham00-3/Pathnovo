@@ -1,0 +1,70 @@
+render_dpi: 150
+scan_render_dpi: 200
+max_pages: 20
+max_file_bytes: 104857600
+
+detection:
+  min_native_text_chars: 80
+  min_vector_objects: 20
+  max_image_coverage: 0.55
+
+ocr:
+  lang: eng
+  min_confidence: 40
+  psm: 6
+
+registration:
+  max_features: 2000
+  min_inliers: 12
+  max_reproj_error: 8.0
+  min_confidence: 0.35
+  border_mask_ratio: 0.04
+
+matching:
+  spatial_radius_norm: 0.12
+  min_match_score: 0.42
+  move_centroid_tol: 0.018
+  weights:
+    identifier: 0.30
+    text: 0.22
+    spatial: 0.18
+    type: 0.10
+    neighbor: 0.10
+    geometry: 0.10
+
+visual_diff:
+  enabled: true
+  min_component_area: 400
+  max_components: 8
+  residual_threshold: 40
+  suppress_border_ratio: 0.05
+  max_emit: 2
+
+confidence:
+  high: 0.78
+  medium: 0.55
+
+pair_compatibility:
+  threshold: 0.65
+  mode: warn  # strict | warn | force
+
+retrieval:
+  top_k: 8
+  rrf_k: 60
+  use_embeddings: false
+
+llm:
+  provider: extractive
+  model: ""
+  temperature: 0.0
+  max_tokens: 800
+  capture_content: true
+
+observability:
+  capture_llm_content: true
+  write_traces: true
+
+paths:
+  registry: data/registry.json
+  artifacts: artifacts
+  data_root: data

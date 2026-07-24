@@ -1,0 +1,44 @@
+{
+  "PID-SYN-A": {
+    "underlying_document_id": "DOC-SYN-LIFT",
+    "revision_label": "A",
+    "path": "data/samples/synthetic_native/lift_rev_a.pdf",
+    "media_type": "application/pdf",
+    "display_name": "Synthetic Lift Rev A"
+  },
+  "PID-SYN-B": {
+    "underlying_document_id": "DOC-SYN-LIFT",
+    "revision_label": "B",
+    "path": "data/samples/synthetic_native/lift_rev_b.pdf",
+    "media_type": "application/pdf",
+    "display_name": "Synthetic Lift Rev B"
+  },
+  "PID-SYN-SCAN-A": {
+    "underlying_document_id": "DOC-SYN-LIFT",
+    "revision_label": "A",
+    "path": "data/samples/synthetic_scanned/lift_rev_a_scan.pdf",
+    "media_type": "application/pdf",
+    "display_name": "Synthetic Lift Scan A"
+  },
+  "PID-SYN-SCAN-B": {
+    "underlying_document_id": "DOC-SYN-LIFT",
+    "revision_label": "B",
+    "path": "data/samples/synthetic_scanned/lift_rev_b_scan.pdf",
+    "media_type": "application/pdf",
+    "display_name": "Synthetic Lift Scan B"
+  },
+  "PID-LIFT": {
+    "underlying_document_id": "DOC-LIFT-COMPRESSOR",
+    "revision_label": "A",
+    "path": "data/private_inputs/lift_gas.pdf",
+    "media_type": "application/pdf",
+    "display_name": "Lift Gas Compressor (private)"
+  },
+  "PID-EXPORT": {
+    "underlying_document_id": "DOC-EXPORT-COMPRESSOR",
+    "revision_label": "A",
+    "path": "data/private_inputs/export_gas.pdf",
+    "media_type": "application/pdf",
+    "display_name": "Export Gas Compressor (private)"
+  }
+}

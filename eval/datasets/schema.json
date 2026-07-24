@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeltaChatEvalDataset",
+  "type": "object",
+  "required": ["version", "cases"],
+  "properties": {
+    "version": {"type": "integer"},
+    "seed": {"type": "integer"},
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "pid_a", "pid_b"],
+        "properties": {
+          "id": {"type": "string"},
+          "pid_a": {"type": "string"},
+          "pid_b": {"type": "string"},
+          "expect_mismatch": {"type": "boolean"},
+          "ground_truth_path": {"type": ["string", "null"]},
+          "qa": {"type": "array"}
+        }
+      }
+    }
+  }
+}
