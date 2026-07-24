@@ -2,9 +2,19 @@ services:
   delta-chat:
     build: .
     ports:
-      - "8501:8501"
+      - "8000:8000"
     environment:
       - LLM_PROVIDER=extractive
       - CAPTURE_LLM_CONTENT=true
+      - DELTA_CHAT_CONFIG=config/default.yaml
     volumes:
-      - ./artifacts:/app/artifacts
+      - delta_artifacts:/app/artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  delta_artifacts:

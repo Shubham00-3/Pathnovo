@@ -14,11 +14,13 @@ from delta_chat.errors import CorruptDocumentError
 from delta_chat.pid.models import ResolvedDocument
 
 ADAPTER_NAME = "native_pdf"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
+
+# Split line spans when horizontal gap exceeds this fraction of page width.
+GAP_SPLIT_RATIO = 0.035
 
 
 def _cluster_drawings(drawings: list[dict], page_w: float, page_h: float) -> list[list[float]]:
-    """Spatially cluster vector primitives into coarse geometry regions."""
     if not drawings:
         return []
     boxes = []
@@ -29,7 +31,6 @@ def _cluster_drawings(drawings: list[dict], page_w: float, page_h: float) -> lis
         boxes.append([float(r.x0), float(r.y0), float(r.x1), float(r.y1)])
     if not boxes:
         return []
-    # Quantize into a coarse grid to avoid thousands of primitives.
     cell = max(page_w, page_h) / 24.0
     buckets: dict[tuple[int, int], list[list[float]]] = defaultdict(list)
     for b in boxes:
@@ -45,14 +46,79 @@ def _cluster_drawings(drawings: list[dict], page_w: float, page_h: float) -> lis
         y0 = min(g[1] for g in group)
         x1 = max(g[2] for g in group)
         y1 = max(g[3] for g in group)
-        # Skip near-full-page noise
         area = (x1 - x0) * (y1 - y0)
-        if area > 0.7 * page_w * page_h:
-            continue
-        if area < 20:
+        if area > 0.7 * page_w * page_h or area < 20:
             continue
         clusters.append([x0, y0, x1, y1])
     return clusters[:80]
+
+
+def _span_items_from_dict(page: fitz.Page) -> list[dict]:
+    """Extract localized text runs using PyMuPDF block/line structure."""
+    data = page.get_text("dict") or {}
+    items: list[dict] = []
+    for bi, block in enumerate(data.get("blocks") or []):
+        if block.get("type", 0) != 0:
+            continue
+        for li, line in enumerate(block.get("lines") or []):
+            spans = line.get("spans") or []
+            if not spans:
+                continue
+            # Group spans on a line; split on large horizontal gaps or font/size changes
+            current: list[dict] = []
+
+            def flush() -> None:
+                nonlocal current
+                if not current:
+                    return
+                text = normalize_text(" ".join(s["text"] for s in current if s["text"].strip()))
+                if not text:
+                    current = []
+                    return
+                x0 = min(s["bbox"][0] for s in current)
+                y0 = min(s["bbox"][1] for s in current)
+                x1 = max(s["bbox"][2] for s in current)
+                y1 = max(s["bbox"][3] for s in current)
+                rot = float(current[0].get("rotation", 0.0))
+                items.append(
+                    {
+                        "text": text,
+                        "bbox": [x0, y0, x1, y1],
+                        "block_no": bi,
+                        "line_no": li,
+                        "rotation": rot,
+                        "font": current[0].get("font"),
+                        "size": current[0].get("size"),
+                    }
+                )
+                current = []
+
+            for si, span in enumerate(spans):
+                text = (span.get("text") or "").strip()
+                if not text:
+                    continue
+                bbox = span.get("bbox") or [0, 0, 0, 0]
+                entry = {
+                    "text": text,
+                    "bbox": list(map(float, bbox)),
+                    "font": span.get("font"),
+                    "size": float(span.get("size") or 0),
+                    "rotation": float(line.get("dir", [1, 0])[0] != 1) * 90.0,  # rough
+                }
+                if not current:
+                    current.append(entry)
+                    continue
+                prev = current[-1]
+                gap = entry["bbox"][0] - prev["bbox"][2]
+                page_w = float(page.rect.width) or 1.0
+                font_changed = (entry.get("font") != prev.get("font")) or (
+                    abs(float(entry.get("size") or 0) - float(prev.get("size") or 0)) > 0.8
+                )
+                if gap > page_w * GAP_SPLIT_RATIO or font_changed:
+                    flush()
+                current.append(entry)
+            flush()
+    return items
 
 
 class NativePdfAdapter:
@@ -85,63 +151,52 @@ class NativePdfAdapter:
                 pw, ph = float(page.rect.width), float(page.rect.height)
                 page_no = page_index + 1
 
-                # Render
                 zoom = dpi / 72.0
                 mat = fitz.Matrix(zoom, zoom)
                 pix = page.get_pixmap(matrix=mat, alpha=False)
                 render_path = out_dir / f"{resolved.pid}_p{page_no}.png"
                 pix.save(str(render_path))
 
-                # Positioned words
-                words = page.get_text("words") or []
-                # group words into lines by y proximity
-                lines: dict[int, list] = defaultdict(list)
-                for w in words:
-                    x0, y0, x1, y1, text, *_ = w
-                    if not str(text).strip():
-                        continue
-                    # y bucket ~ 3 PDF points
-                    yb = int(round(float(y0) / 3.0))
-                    lines[yb].append((float(x0), float(y0), float(x1), float(y1), str(text)))
-
+                span_items = _span_items_from_dict(page)
                 elements = []
                 page_text_parts = []
-                for yb in sorted(lines.keys()):
-                    parts = sorted(lines[yb], key=lambda t: t[0])
-                    text = normalize_text(" ".join(p[4] for p in parts))
-                    if not text:
-                        continue
-                    x0 = min(p[0] for p in parts)
-                    y0 = min(p[1] for p in parts)
-                    x1 = max(p[2] for p in parts)
-                    y1 = max(p[3] for p in parts)
+                for item in span_items:
                     nb = list(
                         normalize_bbox(
-                            [x0, y0, x1, y1],
+                            item["bbox"],
                             page_width=pw,
                             page_height=ph,
                             origin="top-left",
                         )
                     )
-                    grid = estimate_grid(nb)
+                    grid = estimate_grid(
+                        nb,
+                        convention="row_letter_col_number",
+                        approximate=True,
+                    )
                     el = make_element(
                         pid=resolved.pid,
                         page_number=page_no,
-                        raw_text=text,
+                        raw_text=item["text"],
                         bbox=nb,
                         confidence=1.0,
+                        attributes={
+                            "block_no": item["block_no"],
+                            "line_no": item["line_no"],
+                            "font": item.get("font"),
+                            "size": item.get("size"),
+                            "grid_approximate": True,
+                        },
                         sheet_id=f"S{page_no}",
                         grid_region=grid,
                     )
+                    el.rotation_degrees = float(item.get("rotation") or 0.0)
                     elements.append(el)
-                    page_text_parts.append(text)
+                    page_text_parts.append(item["text"])
 
-                # Geometry clusters
                 drawings = page.get_drawings() or []
                 for box in _cluster_drawings(drawings, pw, ph):
-                    nb = list(
-                        normalize_bbox(box, page_width=pw, page_height=ph, origin="top-left")
-                    )
+                    nb = list(normalize_bbox(box, page_width=pw, page_height=ph, origin="top-left"))
                     el = make_element(
                         pid=resolved.pid,
                         page_number=page_no,
@@ -151,7 +206,7 @@ class NativePdfAdapter:
                         confidence=0.7,
                         attributes={"primitive_source": "vector_cluster"},
                         sheet_id=f"S{page_no}",
-                        grid_region=estimate_grid(nb),
+                        grid_region=estimate_grid(nb, approximate=True),
                     )
                     elements.append(el)
 
@@ -165,7 +220,7 @@ class NativePdfAdapter:
                         page_text="\n".join(page_text_parts),
                         elements=elements,
                         extraction_metrics={
-                            "word_count": len(words),
+                            "span_count": len(span_items),
                             "element_count": len(elements),
                             "drawing_count": len(drawings),
                             "dpi": dpi,

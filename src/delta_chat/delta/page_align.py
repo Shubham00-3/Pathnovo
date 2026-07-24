@@ -53,9 +53,7 @@ def align_pages(doc_a: DocumentRevision, doc_b: DocumentRevision) -> list[dict]:
         for i in range(len(doc_a.pages))
         if i not in {m["index_a"] for m in matches}
     ]
-    unmatched_b = [
-        doc_b.pages[j].page_number for j in range(len(doc_b.pages)) if j not in used_b
-    ]
+    unmatched_b = [doc_b.pages[j].page_number for j in range(len(doc_b.pages)) if j not in used_b]
     return {
         "matches": matches,
         "unmatched_a": unmatched_a,

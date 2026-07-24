@@ -34,7 +34,9 @@ def _primary_equipment(doc: DocumentRevision) -> set[str]:
     return out
 
 
-def assess_compatibility(doc_a: DocumentRevision, doc_b: DocumentRevision, config: dict) -> dict[str, Any]:
+def assess_compatibility(
+    doc_a: DocumentRevision, doc_b: DocumentRevision, config: dict
+) -> dict[str, Any]:
     thr = float(config.get("pair_compatibility", {}).get("threshold", 0.65))
     reasons: list[str] = []
     score = 1.0

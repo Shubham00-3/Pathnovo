@@ -16,6 +16,11 @@ venv/
 htmlcov/
 uv.lock
 
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # Project artifacts and private inputs
 artifacts/
 !artifacts/.gitkeep

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 from delta_chat.canonical.serialization import dump_json
 from delta_chat.delta.models import DeltaReport
+
+
+def _esc(value: object) -> str:
+    return html.escape(str(value if value is not None else ""), quote=True)
 
 
 def write_delta_json(report: DeltaReport, path: Path, *, strip_timestamps: bool = False) -> None:
@@ -93,19 +98,24 @@ def render_html(report: DeltaReport) -> str:
     for c in report.changes:
         rows.append(
             "<tr>"
-            f"<td>{c.delta_item_id}</td>"
-            f"<td>{c.change_type}</td>"
-            f"<td>{c.entity_type}</td>"
-            f"<td>{c.confidence_band}</td>"
-            f"<td>{c.deterministic_description}</td>"
-            f"<td>{(c.before or '')[:80]}</td>"
-            f"<td>{(c.after or '')[:80]}</td>"
+            f"<td>{_esc(c.delta_item_id)}</td>"
+            f"<td>{_esc(c.change_type)}</td>"
+            f"<td>{_esc(c.entity_type)}</td>"
+            f"<td>{_esc(c.confidence_band)}</td>"
+            f"<td>{_esc(c.deterministic_description)}</td>"
+            f"<td>{_esc((c.before or '')[:80])}</td>"
+            f"<td>{_esc((c.after or '')[:80])}</td>"
             "</tr>"
         )
-    warn = "".join(f"<li>{w}</li>" for w in report.warnings)
+    warn = "".join(f"<li>{_esc(w)}</li>" for w in report.warnings)
     compat = report.pair_compatibility
+    warn_block = (
+        f"<p class='warn'><b>Warning:</b> {_esc(compat.get('warning'))}</p>"
+        if compat.get("warning")
+        else ""
+    )
     return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Delta {report.pid_a} → {report.pid_b}</title>
+<html><head><meta charset="utf-8"><title>Delta {_esc(report.pid_a)} → {_esc(report.pid_b)}</title>
 <style>
 body{{font-family:system-ui,sans-serif;margin:24px;background:#0f1115;color:#e7ecf3}}
 table{{border-collapse:collapse;width:100%;font-size:14px}}
@@ -114,18 +124,18 @@ th{{background:#1c222b}}
 .card{{background:#161a21;border:1px solid #2a323e;border-radius:10px;padding:16px;margin:12px 0}}
 .warn{{color:#f5a524}}
 </style></head><body>
-<h1>Delta Report: {report.pid_a} → {report.pid_b}</h1>
+<h1>Delta Report: {_esc(report.pid_a)} → {_esc(report.pid_b)}</h1>
 <div class="card">
-<p><b>Delta ID:</b> {report.delta_id}<br>
-<b>Compatible:</b> {compat.get('compatible')} (score {compat.get('score')})<br>
-<b>Total changes:</b> {report.summary.get('total_changes')}</p>
-{"<p class='warn'><b>Warning:</b> " + str(compat.get('warning')) + "</p>" if compat.get('warning') else ""}
+<p><b>Delta ID:</b> {_esc(report.delta_id)}<br>
+<b>Compatible:</b> {_esc(compat.get("compatible"))} (score {_esc(compat.get("score"))})<br>
+<b>Total changes:</b> {_esc(report.summary.get("total_changes"))}</p>
+{warn_block}
 <ul>{warn}</ul>
 </div>
 <table>
 <thead><tr><th>ID</th><th>Type</th><th>Entity</th><th>Band</th><th>Description</th><th>Before</th><th>After</th></tr></thead>
 <tbody>
-{''.join(rows)}
+{"".join(rows)}
 </tbody></table>
 </body></html>
 """

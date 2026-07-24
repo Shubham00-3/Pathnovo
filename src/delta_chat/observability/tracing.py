@@ -11,11 +11,27 @@ from typing import Any
 
 
 class Tracer:
-    def __init__(self, path: Path, request_id: str) -> None:
+    def __init__(
+        self,
+        path: Path,
+        request_id: str,
+        *,
+        correlation_id: str | None = None,
+        parent_run_id: str | None = None,
+    ) -> None:
         self.path = path
         self.request_id = request_id
+        self.correlation_id = correlation_id or request_id
+        self.parent_run_id = parent_run_id
         self.spans: list[dict[str, Any]] = []
         self._open: dict[str, dict[str, Any]] = {}
+        # Load existing spans if appending to a run trace
+        if path.exists():
+            try:
+                prior = json.loads(path.read_text(encoding="utf-8"))
+                self.spans = list(prior.get("spans") or [])
+            except Exception:  # noqa: BLE001
+                self.spans = []
 
     @contextmanager
     def span(self, name: str, **attrs: Any) -> Iterator[dict[str, Any]]:
@@ -25,7 +41,11 @@ class Tracer:
             "start": start,
             "status": "ok",
             "attributes": dict(attrs),
+            "request_id": self.request_id,
+            "correlation_id": self.correlation_id,
         }
+        if self.parent_run_id:
+            span["parent_run_id"] = self.parent_run_id
         self._open[name] = span
         try:
             yield span
@@ -46,10 +66,10 @@ class Tracer:
     def write(self) -> None:
         payload = {
             "request_id": self.request_id,
+            "correlation_id": self.correlation_id,
+            "parent_run_id": self.parent_run_id,
             "spans": self.spans,
-            "total_duration_ms": round(
-                sum(s.get("duration_ms", 0) for s in self.spans), 2
-            ),
+            "total_duration_ms": round(sum(s.get("duration_ms", 0) for s in self.spans), 2),
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self.path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")

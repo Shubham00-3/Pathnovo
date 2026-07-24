@@ -25,20 +25,20 @@ matching:
   min_match_score: 0.42
   move_centroid_tol: 0.018
   weights:
-    identifier: 0.30
-    text: 0.22
-    spatial: 0.18
-    type: 0.10
-    neighbor: 0.10
+    identifier: 0.32
+    text: 0.24
+    spatial: 0.22
+    type: 0.12
+    neighbor: 0.00  # only applied when neighbor lists are populated
     geometry: 0.10
 
 visual_diff:
   enabled: true
   min_component_area: 400
-  max_components: 8
+  max_components: 20
   residual_threshold: 40
   suppress_border_ratio: 0.05
-  max_emit: 2
+  max_emit: 6
 
 confidence:
   high: 0.78

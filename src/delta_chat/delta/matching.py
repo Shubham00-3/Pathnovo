@@ -75,8 +75,15 @@ def score_pair(
     spatial = 0.6 * iou + 0.4 * max(0.0, 1.0 - dist / 0.2)
 
     type_score = _kind_compat(ea.kind, eb.kind)
-    # neighbor placeholder
-    neighbor = 0.5
+    # Neighbor weight redistributed: do not advertise a fake topology feature.
+    # If neighbors are present on both elements, compute Jaccard; else use 0 and
+    # reweight via zero contribution (documented in config comments).
+    na = set(ea.neighbors or [])
+    nb = set(eb.neighbors or [])
+    if na or nb:
+        neighbor = len(na & nb) / max(1, len(na | nb))
+    else:
+        neighbor = 0.0
     # geometry size
     wa = max(1e-6, bbox_a[2] - bbox_a[0]) * max(1e-6, bbox_a[3] - bbox_a[1])
     wb = max(1e-6, eb.bbox[2] - eb.bbox[0]) * max(1e-6, eb.bbox[3] - eb.bbox[1])
@@ -95,13 +102,25 @@ def score_pair(
     if type_score <= 0:
         return 0.0, feats
 
+    w_id = weights.get("identifier", 0.3)
+    w_text = weights.get("text", 0.22)
+    w_spatial = weights.get("spatial", 0.18)
+    w_type = weights.get("type", 0.1)
+    w_neighbor = weights.get("neighbor", 0.0)  # default off unless neighbors populated
+    w_geom = weights.get("geometry", 0.1)
+    # If neighbor weight was left at legacy 0.1 with no neighbors, fold into spatial/text
+    if w_neighbor > 0 and neighbor == 0.0 and not na and not nb:
+        w_spatial += w_neighbor * 0.5
+        w_text += w_neighbor * 0.5
+        w_neighbor = 0.0
+
     score = (
-        weights.get("identifier", 0.3) * id_score
-        + weights.get("text", 0.22) * text_score
-        + weights.get("spatial", 0.18) * spatial
-        + weights.get("type", 0.1) * type_score
-        + weights.get("neighbor", 0.1) * neighbor
-        + weights.get("geometry", 0.1) * geometry
+        w_id * id_score
+        + w_text * text_score
+        + w_spatial * spatial
+        + w_type * type_score
+        + w_neighbor * neighbor
+        + w_geom * geometry
     )
     # boost exact identifier anchors
     if id_score >= 1.0 and text_score > 0.6:
@@ -140,8 +159,7 @@ def match_elements(
             dist = ((ca[0] - cb[0]) ** 2 + (ca[1] - cb[1]) ** 2) ** 0.5
             # allow larger radius for strong identifier matches later
             if dist > radius * 2.5 and not (
-                set(x.upper() for x in ea.identifiers)
-                & set(x.upper() for x in eb.identifiers)
+                set(x.upper() for x in ea.identifiers) & set(x.upper() for x in eb.identifiers)
             ):
                 continue
             s, feats = score_pair(ea, eb, matrix=matrix, weights=weights)

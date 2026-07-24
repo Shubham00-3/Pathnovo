@@ -84,7 +84,13 @@ def match_predictions_to_gt(
                     "geometry_cluster",
                 }:
                     # allow loose match for text-ish
-                    if g["entity_type"] not in {"instrument_tag", "table_cell", "note", "line_tag", "geometry_region"}:
+                    if g["entity_type"] not in {
+                        "instrument_tag",
+                        "table_cell",
+                        "note",
+                        "line_tag",
+                        "geometry_region",
+                    }:
                         et_ok = False
             if not et_ok:
                 continue
@@ -113,7 +119,15 @@ def match_predictions_to_gt(
         s = 1.0 - float(cost[i, j])
         if s < 0.45:
             continue
-        pairs.append({"pred_index": i, "gt_index": j, "score": s, "pred": predictions[i], "gt": ground_truth[j]})
+        pairs.append(
+            {
+                "pred_index": i,
+                "gt_index": j,
+                "score": s,
+                "pred": predictions[i],
+                "gt": ground_truth[j],
+            }
+        )
         used_p.add(i)
         used_g.add(j)
 

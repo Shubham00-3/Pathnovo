@@ -19,7 +19,14 @@ from delta_chat.delta.visual_diff import residual_geometry_changes
 from delta_chat.errors import RegistrationFailure
 
 
-def _desc(change_type: str, entity: str, before: str | None, after: str | None, page: int | None, grid: str | None) -> str:
+def _desc(
+    change_type: str,
+    entity: str,
+    before: str | None,
+    after: str | None,
+    page: int | None,
+    grid: str | None,
+) -> str:
     loc = f"sheet {page or 1}"
     if grid:
         loc += f", grid {grid}"
@@ -114,24 +121,32 @@ def compute_delta(
         pa = by_page_a[m["page_a"]]
         pb = by_page_b[m["page_b"]]
         reg = {
-            "method": "identity",
-            "confidence": 0.7,
-            "norm_matrix": [[1, 0, 0], [0, 1, 0]],
-            "pixel_matrix": [[1, 0, 0], [0, 1, 0]],
-            "rejected": False,
+            "method": "none",
+            "confidence": 0.0,
+            "norm_matrix": None,
+            "pixel_matrix": None,
+            "rejected": True,
+            "warning": "registration not run",
         }
         if pa.render_path and pb.render_path:
             try:
                 reg = register_pages(pa.render_path, pb.render_path, config)
             except RegistrationFailure as exc:
                 warnings.append(str(exc.message))
-                reg["rejected"] = True
-                reg["warning"] = str(exc.message)
+                reg = {
+                    "method": "none",
+                    "confidence": 0.0,
+                    "norm_matrix": None,
+                    "pixel_matrix": None,
+                    "rejected": True,
+                    "warning": str(exc.message),
+                }
         registration_all[str(pb.page_number)] = reg
-        matrix = reg.get("norm_matrix")
+        # Semantic matching can still use identity spatial coords when registration
+        # fails, but visual residual must not run on a fabricated transform.
+        matrix = reg.get("norm_matrix") or [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
         if reg.get("rejected"):
             warnings.append(reg.get("warning") or "registration rejected")
-            matrix = [[1, 0, 0], [0, 1, 0]]
 
         # Filter out pure geometry clusters from primary semantic matching volume
         sem_a = [e for e in pa.elements if e.kind != "geometry_cluster" or e.normalized_text]
@@ -166,10 +181,9 @@ def compute_delta(
             if _is_noise_text(ea.normalized_text) and _is_noise_text(eb.normalized_text):
                 suppressed += 1
                 continue
-            if (
-                (ea.normalized_text or "").upper().startswith("REV:")
-                and (eb.normalized_text or "").upper().startswith("REV:")
-            ):
+            if (ea.normalized_text or "").upper().startswith("REV:") and (
+                eb.normalized_text or ""
+            ).upper().startswith("REV:"):
                 suppressed += 1
                 continue
             conf, band, factors = confidence_for_change(
@@ -184,7 +198,9 @@ def compute_delta(
             grid = (eb.source_ref.grid_region if eb.source_ref else None) or (
                 ea.source_ref.grid_region if ea.source_ref else None
             )
-            payload = f"{ea.element_id}|{eb.element_id}|{ctype}|{ea.normalized_text}|{eb.normalized_text}"
+            payload = (
+                f"{ea.element_id}|{eb.element_id}|{ctype}|{ea.normalized_text}|{eb.normalized_text}"
+            )
             item = DeltaItem(
                 delta_item_id=_item_id(doc_a.pid, doc_b.pid, ctype, payload),
                 change_type=ctype,  # type: ignore[arg-type]
@@ -193,7 +209,9 @@ def compute_delta(
                 page_b=pb.page_number,
                 region={
                     "bbox": eb.bbox,
-                    "bbox_a_transformed": list(transform_bbox_affine(ea.bbox, matrix)) if matrix else ea.bbox,
+                    "bbox_a_transformed": list(transform_bbox_affine(ea.bbox, matrix))
+                    if matrix
+                    else ea.bbox,
                     "grid_region": grid,
                 },
                 before=ea.normalized_text or None,
@@ -201,12 +219,21 @@ def compute_delta(
                 before_ref=ea.source_ref.model_dump() if ea.source_ref else None,
                 after_ref=eb.source_ref.model_dump() if eb.source_ref else None,
                 deterministic_description=_desc(
-                    ctype, eb.kind or ea.kind, ea.normalized_text, eb.normalized_text, pb.page_number, grid
+                    ctype,
+                    eb.kind or ea.kind,
+                    ea.normalized_text,
+                    eb.normalized_text,
+                    pb.page_number,
+                    grid,
                 ),
                 confidence=round(conf, 4),
                 confidence_band=band,
                 confidence_factors=factors,
-                match_features={**match.get("features", {}), **extra, "match_score": match.get("score")},
+                match_features={
+                    **match.get("features", {}),
+                    **extra,
+                    "match_score": match.get("score"),
+                },
                 review_required=band != "high",
             )
             changes.append(item)
@@ -234,7 +261,9 @@ def compute_delta(
             grid = ea.source_ref.grid_region if ea.source_ref else None
             changes.append(
                 DeltaItem(
-                    delta_item_id=_item_id(doc_a.pid, doc_b.pid, "removed", ea.element_id + ea.normalized_text),
+                    delta_item_id=_item_id(
+                        doc_a.pid, doc_b.pid, "removed", ea.element_id + ea.normalized_text
+                    ),
                     change_type="removed",
                     entity_type=ea.kind,
                     page_a=pa.page_number,
@@ -274,7 +303,9 @@ def compute_delta(
             grid = eb.source_ref.grid_region if eb.source_ref else None
             changes.append(
                 DeltaItem(
-                    delta_item_id=_item_id(doc_a.pid, doc_b.pid, "added", eb.element_id + eb.normalized_text),
+                    delta_item_id=_item_id(
+                        doc_a.pid, doc_b.pid, "added", eb.element_id + eb.normalized_text
+                    ),
                     change_type="added",
                     entity_type=eb.kind,
                     page_a=pa.page_number,
@@ -293,9 +324,10 @@ def compute_delta(
             )
             explained_boxes.append(list(eb.bbox))
 
-        # residual visual geometry
+        # residual visual geometry only when registration succeeded with a real matrix
         if (
             not reg.get("rejected")
+            and reg.get("pixel_matrix")
             and pa.render_path
             and pb.render_path
             and config.get("visual_diff", {}).get("enabled", True)
@@ -303,45 +335,54 @@ def compute_delta(
             comps = residual_geometry_changes(
                 pa.render_path,
                 pb.render_path,
-                pixel_matrix=reg.get("pixel_matrix") or [[1, 0, 0], [0, 1, 0]],
+                pixel_matrix=reg["pixel_matrix"],
                 config=config,
                 pid_b=doc_b.pid,
                 page_number=pb.page_number,
                 existing_boxes=explained_boxes,
             )
+            suppressed += int(reg.get("suppressed_visual") or 0)
             for i, c in enumerate(comps):
+                ctype = str(c.get("change_type") or "added")
+                if ctype not in {"added", "removed", "modified"}:
+                    ctype = "added"
                 conf, band, factors = confidence_for_change(
-                    change_type="added",
+                    change_type=ctype,
                     match_score=0.55,
                     features={"geometry": 0.8, "spatial": 0.6},
                     extraction_conf=0.6,
-                    registration_conf=float(reg.get("confidence", 0.5)),
+                    registration_conf=float(reg.get("confidence", 0.0)),
                     pair_score=pair_score,
                     bands=bands,
                 )
                 changes.append(
                     DeltaItem(
                         delta_item_id=_item_id(
-                            doc_a.pid, doc_b.pid, "added", f"geo-{pb.page_number}-{i}-{c['bbox']}"
+                            doc_a.pid, doc_b.pid, ctype, f"geo-{pb.page_number}-{i}-{c['bbox']}"
                         ),
-                        change_type="added",
+                        change_type=ctype,  # type: ignore[arg-type]
                         entity_type="geometry_region",
                         page_a=pa.page_number,
                         page_b=pb.page_number,
                         region={"bbox": c["bbox"], "grid_region": c.get("grid_region")},
-                        after="geometry region change",
+                        before="geometry region" if ctype == "removed" else None,
+                        after="geometry region" if ctype != "removed" else None,
                         deterministic_description=_desc(
-                            "added",
+                            ctype,
                             "geometry_region",
-                            None,
-                            "geometry region change",
+                            "geometry region" if ctype == "removed" else None,
+                            "geometry region" if ctype != "removed" else None,
                             pb.page_number,
                             c.get("grid_region"),
                         ),
                         confidence=round(conf, 4),
                         confidence_band=band,
                         confidence_factors=factors,
-                        match_features={"area": c.get("area"), "source": "visual_residual"},
+                        match_features={
+                            "area": c.get("area"),
+                            "source": "visual_residual",
+                            "direction": c.get("direction"),
+                        },
                         review_required=True,
                     )
                 )

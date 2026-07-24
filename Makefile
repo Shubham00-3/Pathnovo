@@ -1,34 +1,52 @@
-.PHONY: samples lint test eval demo install sync
+.PHONY: samples lint format test eval demo verify frontend-install frontend-build frontend-lint api
 
-UV ?= uv
-PYTHONPATH := src:.
+PYTHON ?= .venv/Scripts/python.exe
+ifeq ($(OS),Windows_NT)
+  PYTHONPATH_SEP := ;
+else
+  PYTHON ?= .venv/bin/python
+  PYTHONPATH_SEP := :
+endif
 
-sync:
-	$(UV) sync --all-extras
-
-install: sync
-	$(UV) pip install -e ".[dev]"
+export PYTHONPATH := src$(PYTHONPATH_SEP).
 
 samples:
-	$(UV) run python -c "from scripts.make_synthetic_pid_pair import main; main()"
-	$(UV) run python -c "from scripts.make_scanned_pair import main; main()"
-	$(UV) run python -c "from scripts.build_eval_dataset import main; main()"
+	$(PYTHON) -c "from scripts.make_synthetic_pid_pair import main; main()"
+	$(PYTHON) -c "from scripts.make_scanned_pair import main; main()"
+	$(PYTHON) -c "from scripts.build_eval_dataset import main; main()"
+
+format:
+	$(PYTHON) -m ruff format src tests scripts eval
 
 lint:
-	$(UV) run ruff check src tests scripts eval
-	$(UV) run ruff format --check src tests scripts eval || true
+	$(PYTHON) -m ruff check src tests scripts eval
+	$(PYTHON) -m ruff format --check src tests scripts eval
+	$(PYTHON) -m mypy src/delta_chat
 
 test:
-	$(UV) run pytest -q
+	$(PYTHON) -m pytest -q
 
 eval:
-	$(UV) run python -m eval.run
+	$(PYTHON) -m eval.run
 
-demo:
-	$(UV) run streamlit run src/delta_chat/ui/app.py --server.headless true --server.port 8501
+frontend-install:
+	cd frontend && npm ci || npm install
+
+frontend-lint:
+	cd frontend && npm run build
+
+frontend-build: frontend-lint
+
+api:
+	$(PYTHON) -m uvicorn delta_chat.api:app --host 127.0.0.1 --port 8000
+
+# One-command local demo: API serving React if dist exists; otherwise print Vite note
+demo: frontend-build samples
+	@echo "Starting API on http://127.0.0.1:8000 (serves frontend/dist)"
+	$(PYTHON) -m uvicorn delta_chat.api:app --host 127.0.0.1 --port 8000
+
+verify: format lint test frontend-build eval
+	@echo "VERIFY OK"
 
 run-pair:
-	$(UV) run delta-chat run-pair --pid-a PID-SYN-A --pid-b PID-SYN-B
-
-chat:
-	@echo "Usage: uv run delta-chat chat --run-id <id> -q 'What changed?'"
+	$(PYTHON) -m delta_chat.cli run-pair --pid-a PID-SYN-A --pid-b PID-SYN-B

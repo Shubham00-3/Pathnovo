@@ -164,7 +164,7 @@ def run_pair(
         }
     except Exception as exc:  # noqa: BLE001
         log_error(exc)
-        metrics.incr(f"errors.{type(exc).__name__}")
+        metrics.incr_error(type(exc).__name__)
         metrics.write(ctx.run_dir / "metrics.json")
         tracer.write()
         logger.emit("run.failed", error=str(exc))
@@ -174,28 +174,111 @@ def run_pair(
 def chat_on_run(
     run_payload: dict[str, Any],
     question: str,
+    *,
+    chat_request_id: str | None = None,
 ) -> dict[str, Any]:
+    """Answer a question against an existing pair run, appending chat spans/metrics."""
+    from delta_chat.observability.context import new_request_id, validate_request_id
+    from delta_chat.observability.logging import EventLogger
+    from delta_chat.observability.metrics import Metrics
+    from delta_chat.observability.tracing import Tracer
+
     report = run_payload["report"]
     records = run_payload["records"]
     cfg = run_payload["config"]
-    telemetry = run_payload.get("telemetry")
-    retriever = HybridRetriever(records, cfg)
-    service = ChatService(retriever, report, cfg, telemetry=telemetry)
-    answer = service.ask(question)
-    # append chat to run dir
     run_dir = Path(run_payload["run_dir"])
+    parent_run_id = run_payload.get("request_id") or run_dir.name
+
+    capture = bool(cfg.get("llm", {}).get("capture_content", True))
+    telemetry = run_payload.get("telemetry")
+    if telemetry is None:
+        from delta_chat.observability.llm_telemetry import LLMTelemetry
+
+        telemetry = LLMTelemetry(run_dir / "llm_calls.jsonl", capture_content=capture)
+        run_payload["telemetry"] = telemetry
+    else:
+        # honor config if telemetry was created elsewhere with hardcoded capture
+        telemetry.capture_content = capture
+
+    chat_rid = validate_request_id(chat_request_id) if chat_request_id else new_request_id()
+    tracer = Tracer(
+        run_dir / "trace.json",
+        request_id=chat_rid,
+        correlation_id=parent_run_id,
+        parent_run_id=parent_run_id,
+    )
+    logger = EventLogger(run_dir / "events.jsonl")
+    metrics = Metrics.load(run_dir / "metrics.json")
+    logger.emit(
+        "chat.start",
+        chat_request_id=chat_rid,
+        parent_run_id=parent_run_id,
+        question=question[:500],
+    )
+
+    retriever = HybridRetriever(records, cfg)
+    service = ChatService(
+        retriever,
+        report,
+        cfg,
+        telemetry=telemetry,
+        tracer=tracer,
+    )
+    try:
+        with tracer.span("chat.request", question_chars=len(question)):
+            answer = service.ask(question)
+    except Exception as exc:  # noqa: BLE001
+        metrics.incr_error(type(exc).__name__)
+        metrics.write(run_dir / "metrics.json")
+        tracer.write()
+        logger.emit("chat.error", error=str(exc), chat_request_id=chat_rid)
+        raise
+
     chat_path = run_dir / "chat.jsonl"
     with chat_path.open("a", encoding="utf-8") as f:
         f.write(
-            json.dumps({"question": question, "answer": answer.model_dump(mode="json")}) + "\n"
+            json.dumps(
+                {
+                    "chat_request_id": chat_rid,
+                    "parent_run_id": parent_run_id,
+                    "question": question,
+                    "answer": answer.model_dump(mode="json"),
+                },
+                default=str,
+            )
+            + "\n"
         )
-    if telemetry:
-        metrics_path = run_dir / "metrics.json"
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
-        metrics["llm"] = {
-            "calls": telemetry.calls,
-            "total_tokens": telemetry.total_tokens,
-            "total_cost": telemetry.total_cost,
-        }
-        metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+    # Cumulative LLM metrics from telemetry object (already restored from jsonl)
+    metrics.merge_llm(
+        calls=0,  # absolute set below from telemetry totals
+        total_tokens=0,
+        total_cost=None,
+        cost_status="unavailable",
+        cost_reason="no_provider_pricing_table",
+    )
+    metrics.data["llm"] = {
+        "calls": telemetry.calls,
+        "total_tokens": telemetry.total_tokens,
+        "total_cost": telemetry.total_cost,
+        "cost_status": "unavailable" if telemetry.total_cost is None else "estimated",
+        "cost_reason": (
+            "no_provider_pricing_table" if telemetry.total_cost is None else "provider_or_heuristic"
+        ),
+    }
+    metrics.incr("chat_requests")
+    if answer.unsupported:
+        metrics.incr("chat_refusals")
+    for sp in tracer.spans:
+        if sp.get("request_id") == chat_rid:
+            metrics.set_stage(f"chat.{sp['name']}", sp.get("duration_ms", 0))
+    metrics.write(run_dir / "metrics.json")
+    tracer.write()
+    logger.emit(
+        "chat.complete",
+        chat_request_id=chat_rid,
+        unsupported=answer.unsupported,
+        citations=len(answer.citations),
+        provider=answer.provider,
+    )
     return answer.model_dump(mode="json")

@@ -25,3 +25,4 @@ class ChatAnswer(BaseModel):
     route: str | None = None
     retrieval: list[dict[str, Any]] = Field(default_factory=list)
     provider: str = "extractive"
+    meta: dict[str, Any] = Field(default_factory=dict)

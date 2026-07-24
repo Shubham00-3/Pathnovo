@@ -6,6 +6,7 @@ gates:
   pair_mismatch_accuracy: 1.0
   citation_validity: 1.0
   unsupported_refusal: 1.0
-  fail_on_gate: false
+  fail_on_gate: true
+  require_scanned: false  # set true in Docker / environments with Tesseract
 location_iou_threshold: 0.05
 centroid_tol: 0.08

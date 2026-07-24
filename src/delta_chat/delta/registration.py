@@ -48,11 +48,11 @@ def register_pages(
     kpa, desa = orb.detectAndCompute(ga, mask)
     kpb, desb = orb.detectAndCompute(gb, mask)
 
-    method = "identity"
+    method = "none"
     matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
     inliers = 0
     residual = 0.0
-    confidence = 0.5
+    confidence = 0.0
 
     if desa is not None and desb is not None and len(kpa) >= 8 and len(kpb) >= 8:
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
@@ -80,9 +80,14 @@ def register_pages(
                     projected = cv2.transform(pts, M)
                     target = dst[inlier_mask.ravel() == 1]
                     residual = float(np.mean(np.linalg.norm(projected - target, axis=2)))
-                    confidence = min(1.0, 0.35 + 0.5 * (inliers / max(30, len(good))) + 0.15 * max(0, 1 - residual / 10))
+                    confidence = min(
+                        1.0,
+                        0.35
+                        + 0.5 * (inliers / max(30, len(good)))
+                        + 0.15 * max(0, 1 - residual / 10),
+                    )
 
-    if method == "identity" or confidence < min_conf:
+    if method == "none" or confidence < min_conf:
         # ECC fallback
         try:
             ga_f = ga.astype(np.float32) / 255.0
@@ -92,21 +97,40 @@ def register_pages(
             cc, warp = cv2.findTransformECC(gb_f, ga_f, warp, cv2.MOTION_AFFINE, criteria)
             matrix = warp.astype(np.float64)
             method = "ecc"
-            confidence = float(max(confidence, min(1.0, cc)))
-            residual = float(max(0.0, (1.0 - cc) * 10))
+            confidence = float(max(confidence, min(1.0, float(cc))))
+            residual = float(max(0.0, (1.0 - float(cc)) * 10))
             inliers = max(inliers, 10)
         except Exception:
             pass
 
-    # Convert pixel affine to normalized-space affine for [0,1] boxes.
-    # x_n' = (a*(x_n*w) + b*(y_n*h) + tx)/w
+    # Validate affine transform plausibility
     a, b, tx = matrix[0]
     c, d, ty = matrix[1]
+    det = float(a * d - b * c)
+    scale = float(((a**2 + c**2) ** 0.5 + (b**2 + d**2) ** 0.5) / 2.0)
+    implausible = (
+        not np.isfinite(det)
+        or abs(det) < 0.2
+        or abs(det) > 5.0
+        or scale < 0.5
+        or scale > 2.0
+        or residual > max_err * 3
+    )
+    if implausible and method != "none":
+        confidence = min(confidence, 0.2)
+        method = f"{method}_implausible"
+
+    # Convert pixel affine to normalized-space affine for [0,1] boxes.
     norm_matrix = [
         [float(a), float(b * h / max(w, 1)), float(tx / max(w, 1))],
         [float(c * w / max(h, 1)), float(d), float(ty / max(h, 1))],
     ]
 
+    rejected = (
+        confidence < min_conf
+        or method in {"none", "none_implausible"}
+        or (method.endswith("_implausible") and confidence < min_conf)
+    )
     result = {
         "method": method,
         "inliers": inliers,
@@ -115,9 +139,17 @@ def register_pages(
         "pixel_matrix": matrix.tolist(),
         "norm_matrix": norm_matrix,
         "image_size": [int(w), int(h)],
-        "rejected": False,
+        "determinant": round(det, 5),
+        "scale": round(scale, 5),
+        "rejected": rejected,
     }
-    if confidence < min_conf and method == "identity":
-        result["rejected"] = True
-        result["warning"] = "Registration quality below threshold; visual geometry diff suppressed"
+    if rejected:
+        result["warning"] = (
+            "Registration quality below threshold or transform implausible; "
+            "visual geometry diff suppressed"
+        )
+        # Do not trust identity for unrelated pages — mark explicit rejection
+        if method == "none":
+            result["norm_matrix"] = None
+            result["pixel_matrix"] = None
     return result

@@ -50,7 +50,9 @@ def write_markup_pdf(
             color = (0.55, 0.55, 0.55)
         shape = page.new_shape()
         shape.draw_rect(rect)
-        shape.finish(color=color, width=1.5, dashes="[3 2]" if change.change_type == "removed" else None)
+        shape.finish(
+            color=color, width=1.5, dashes="[3 2]" if change.change_type == "removed" else None
+        )
         shape.commit()
         label = change.delta_item_id
         page.insert_text(

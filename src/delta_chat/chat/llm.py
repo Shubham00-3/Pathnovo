@@ -15,8 +15,7 @@ from delta_chat.observability.llm_telemetry import LLMTelemetry
 class LLMClient(Protocol):
     provider: str
 
-    def answer(self, prompt: str, *, system: str = "") -> dict[str, Any]:
-        ...
+    def answer(self, prompt: str, *, system: str = "") -> dict[str, Any]: ...
 
 
 class ExtractiveLLMClient:
@@ -84,7 +83,9 @@ class ExtractiveLLMClient:
                 prompt_tokens=len(prompt.split()),
                 completion_tokens=len(result["answer"].split()),
                 total_tokens=len(prompt.split()) + len(result["answer"].split()),
-                estimated_cost=0.0,
+                estimated_cost=None,
+                cost_status="unavailable",
+                cost_reason="extractive_provider_has_no_token_pricing",
                 latency_ms=round(latency, 2),
                 status="ok",
             )
@@ -94,7 +95,9 @@ class ExtractiveLLMClient:
 class FakeLLMClient:
     provider = "fake"
 
-    def __init__(self, response: dict[str, Any] | None = None, telemetry: LLMTelemetry | None = None) -> None:
+    def __init__(
+        self, response: dict[str, Any] | None = None, telemetry: LLMTelemetry | None = None
+    ) -> None:
         self.response = response or {
             "answer": "fake",
             "citations": [],
@@ -174,16 +177,27 @@ class LiteLLMClient:
         prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
         completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
         total = prompt_tokens + completion_tokens
-        # rough cost placeholder
-        cost = total * 0.000002
+        # Cost: use provider usage if available; otherwise mark unavailable (no guessed pricing)
+        cost = None
+        cost_status = "unavailable"
+        cost_reason = "no_provider_pricing_table"
+        try:
+            hidden = getattr(resp, "_hidden_params", None) or {}
+            if isinstance(hidden, dict) and hidden.get("response_cost") is not None:
+                cost = float(hidden["response_cost"])
+                cost_status = "provider"
+                cost_reason = "litellm_response_cost"
+        except Exception:  # noqa: BLE001
+            pass
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
+            # Do not invent citations for raw text; let chat service refuse/retry
             data = {
                 "answer": content,
                 "citations": [],
                 "confidence": "low",
-                "unsupported": False,
+                "unsupported": True,
             }
         if self.telemetry:
             self.telemetry.record(
@@ -196,6 +210,8 @@ class LiteLLMClient:
                 completion_tokens=completion_tokens,
                 total_tokens=total,
                 estimated_cost=cost,
+                cost_status=cost_status,
+                cost_reason=cost_reason,
                 latency_ms=round((time.time() - start) * 1000, 2),
                 status="ok",
             )

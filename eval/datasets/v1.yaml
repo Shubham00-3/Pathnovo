@@ -7,6 +7,7 @@ cases:
     pid_b: PID-SYN-B
     mismatch_mode: warn
     expect_mismatch: false
+    required: true
     ground_truth_path: data/samples/synthetic_native/ground_truth.json
     qa:
       - id: delta_setpoint
@@ -15,7 +16,7 @@ cases:
         require_citation: true
         acceptable_source_prefixes: ["D:", "A:", "B:"]
       - id: duty_rev_b
-        question: What is the duty in revision B?
+        question: What is the duty value in the duty table of revision B?
         must_include: ["12500"]
         require_citation: true
         acceptable_source_prefixes: ["B:", "D:"]
@@ -24,19 +25,26 @@ cases:
         must_include: []
         require_citation: true
         acceptable_source_prefixes: ["D:"]
-      - id: no_motor_vendor
-        question: Did the motor vendor change?
+      - id: note_added
+        question: Was NOTE 12 added between the revisions?
+        must_include: ["NOTE 12"]
+        require_citation: true
+        acceptable_source_prefixes: ["D:", "B:"]
+      - id: unsupported_unseen
+        question: What is the approved paint color code for the skid package?
         unsupported: true
         must_include: []
         require_citation: false
-      - id: unsupported
-        question: What is the CEO favorite color on this drawing?
+      - id: vendor_supported_if_present
+        # "vendor" is not a blacklist word; without evidence this must refuse
+        question: Did the motor vendor change?
         unsupported: true
         must_include: []
         require_citation: false
     retrieval:
       - query: "26-PIT-9062"
-        expect_recall_at_1: true
+        expect_families: ["rev_a", "rev_b", "delta"]
+        must_match_text: "26-PIT-9062"
 
   - id: scanned_revision
     description: Scanned variant of the synthetic pair
@@ -44,26 +52,28 @@ cases:
     pid_b: PID-SYN-SCAN-B
     mismatch_mode: warn
     expect_mismatch: false
+    required: true
+    requires_ocr: true
     ground_truth_path: data/samples/synthetic_scanned/ground_truth.json
-    optional_if_ocr_missing: true
     qa:
-      - id: scan_delta
-        question: What changed about the duty?
-        must_include: []
+      - id: scan_duty
+        question: What changed about the duty value?
+        must_include: ["12500"]
         require_citation: true
         acceptable_source_prefixes: ["D:", "A:", "B:"]
       - id: scan_unsupported
-        question: Who approved the vendor painting scheme?
+        question: Who signed the hydraulic certification stamp?
         unsupported: true
         must_include: []
         require_citation: false
 
   - id: lift_export_mismatch
-    description: Lift vs export pair mismatch
+    description: Lift vs export pair mismatch (different underlying documents)
     pid_a: PID-LIFT
     pid_b: PID-EXPORT
     mismatch_mode: warn
     expect_mismatch: true
+    required: true
     ground_truth_path: null
     qa:
       - id: mismatch_summary
@@ -71,3 +81,18 @@ cases:
         must_include: []
         require_citation: true
         acceptable_source_prefixes: ["D:"]
+
+  - id: native_revision_alt
+    description: Second independent native scenario (same generator family, pair re-run)
+    pid_a: PID-SYN-A
+    pid_b: PID-SYN-B
+    mismatch_mode: warn
+    expect_mismatch: false
+    required: true
+    ground_truth_path: data/samples/synthetic_native/ground_truth.json
+    qa:
+      - id: line_removed
+        question: Was the line tag 4"-PG-1002-A1 removed?
+        must_include: ["1002"]
+        require_citation: true
+        acceptable_source_prefixes: ["D:", "A:"]

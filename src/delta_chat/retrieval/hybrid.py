@@ -17,7 +17,9 @@ def route_query(question: str) -> dict[str, Any]:
     q = question.lower()
     families: list[str] = ["rev_a", "rev_b", "delta"]
     intent = "general"
-    if any(w in q for w in ("change", "delta", "added", "removed", "difference", "modified", "moved")):
+    if any(
+        w in q for w in ("change", "delta", "added", "removed", "difference", "modified", "moved")
+    ):
         intent = "delta"
         families = ["delta", "rev_a", "rev_b"]
     if any(w in q for w in ("before", "old", "rev a", "revision a", "pid a")):
@@ -75,7 +77,11 @@ class HybridRetriever:
             blob = (r.text or "").upper().replace(" ", "")
             for t in tags:
                 t_norm = t.replace(" ", "").upper()
-                if t_norm in idents or t_norm in blob or t_norm.replace("-", "") in blob.replace("-", ""):
+                if (
+                    t_norm in idents
+                    or t_norm in blob
+                    or t_norm.replace("-", "") in blob.replace("-", "")
+                ):
                     if r.source_id not in exact_hits:
                         exact_hits.append(r.source_id)
             if any(t.lower() in (r.text or "").lower() for t in tags):

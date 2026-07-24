@@ -42,9 +42,9 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     if os.environ.get("LLM_MODEL"):
         cfg.setdefault("llm", {})["model"] = os.environ["LLM_MODEL"]
     if os.environ.get("CAPTURE_LLM_CONTENT"):
-        cfg.setdefault("llm", {})["capture_content"] = (
-            os.environ["CAPTURE_LLM_CONTENT"].lower() in {"1", "true", "yes"}
-        )
+        cfg.setdefault("llm", {})["capture_content"] = os.environ[
+            "CAPTURE_LLM_CONTENT"
+        ].lower() in {"1", "true", "yes"}
     return cfg
 
 

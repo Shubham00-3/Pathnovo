@@ -13,8 +13,7 @@ class FormatAdapter(Protocol):
     name: str
     version: str
 
-    def supports(self, path: Path, signals: dict) -> bool:
-        ...
+    def supports(self, path: Path, signals: dict) -> bool: ...
 
     def ingest(
         self,
@@ -22,5 +21,4 @@ class FormatAdapter(Protocol):
         *,
         out_dir: Path,
         config: dict,
-    ) -> DocumentRevision:
-        ...
+    ) -> DocumentRevision: ...

@@ -11,6 +11,8 @@ def test_rejects_unknown_citation():
 
 
 def test_accepts_known():
-    evidence = [{"source_id": "D:D-1", "record": {"source_family": "delta", "text": "x", "pid": "P"}}]
+    evidence = [
+        {"source_id": "D:D-1", "record": {"source_family": "delta", "text": "x", "pid": "P"}}
+    ]
     cites = validate_citations(["D:D-1"], evidence)
     assert cites[0].source_id == "D:D-1"

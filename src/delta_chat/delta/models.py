@@ -37,9 +37,7 @@ class DeltaReport(BaseModel):
     pid_b: str
     pair_compatibility: dict[str, Any]
     config_hash: str
-    generated_at: str = Field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    generated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     summary: dict[str, Any] = Field(default_factory=dict)
     changes: list[DeltaItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

@@ -6,9 +6,19 @@ from delta_chat.delta.matching import score_pair
 def test_score_and_classify():
     a = make_element(pid="A", page_number=1, raw_text="HH 245", bbox=[0.1, 0.1, 0.2, 0.15])
     b = make_element(pid="B", page_number=1, raw_text="HH 250", bbox=[0.11, 0.11, 0.21, 0.16])
-    s, feats = score_pair(a, b, matrix=None, weights={
-        "identifier": 0.3, "text": 0.22, "spatial": 0.18, "type": 0.1, "neighbor": 0.1, "geometry": 0.1
-    })
+    s, feats = score_pair(
+        a,
+        b,
+        matrix=None,
+        weights={
+            "identifier": 0.3,
+            "text": 0.22,
+            "spatial": 0.18,
+            "type": 0.1,
+            "neighbor": 0.1,
+            "geometry": 0.1,
+        },
+    )
     assert s > 0.3
     ctype, _ = classify_match(a, b, features=feats, matrix=None, move_tol=0.018)
     assert ctype == "modified"

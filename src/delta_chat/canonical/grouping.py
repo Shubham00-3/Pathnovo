@@ -9,7 +9,6 @@ from collections.abc import Iterable
 from delta_chat.canonical.coordinates import quantize_bbox
 from delta_chat.canonical.models import CanonicalElement, ElementKind, SourceRef
 
-# Conservative engineering tag patterns.
 INSTRUMENT_RE = re.compile(
     r"\b\d{1,3}-?(?:PIT|PT|TT|TI|FT|FI|LT|LI|PSH|PSL|PAHH|PALL|TSH|TSL|FSH|FSL)[-\s]?\d{2,5}\b",
     re.I,
@@ -21,8 +20,7 @@ SETPOINT_RE = re.compile(r"\b(?:HH|H|LL|L|SP)\s*[=:]?\s*\d+(?:\.\d+)?\b", re.I)
 
 
 def normalize_text(text: str) -> str:
-    t = re.sub(r"\s+", " ", (text or "").strip())
-    return t
+    return re.sub(r"\s+", " ", (text or "").strip())
 
 
 def extract_identifiers(text: str) -> list[str]:
@@ -30,7 +28,6 @@ def extract_identifiers(text: str) -> list[str]:
     for rx in (INSTRUMENT_RE, EQUIPMENT_RE, LINE_TAG_RE, NOTE_RE):
         for m in rx.finditer(text or ""):
             found.append(normalize_text(m.group(0)).upper().replace(" ", ""))
-    # de-dupe preserve order
     out: list[str] = []
     seen: set[str] = set()
     for x in found:
@@ -43,21 +40,17 @@ def extract_identifiers(text: str) -> list[str]:
 def classify_kind(text: str, identifiers: list[str] | None = None) -> ElementKind:
     t = text or ""
     ids = identifiers or extract_identifiers(t)
-    upper = t.upper()
     if NOTE_RE.search(t):
         return "note"
-    if any(INSTRUMENT_RE.fullmatch(i) or INSTRUMENT_RE.search(i) for i in ids) or any(
-        k in upper for k in ("PIT", "PT-", "TT-", "FT-", "PAHH", "PALL")
-    ):
-        if ids and any(INSTRUMENT_RE.search(i) for i in ids):
-            return "instrument_tag"
+    if any(INSTRUMENT_RE.search(i) for i in ids):
+        return "instrument_tag"
     if any(EQUIPMENT_RE.search(i) for i in ids):
         return "equipment_tag"
     if LINE_TAG_RE.search(t):
         return "line_tag"
-    if re.search(r"\b(duty|setpoint|hh|ll|capacity|kw|bar|psi)\b", t, re.I):
-        return "table_cell"
-    if SETPOINT_RE.search(t):
+    if re.search(r"\b(duty|setpoint|hh|ll|capacity|kw|bar|psi)\b", t, re.I) or SETPOINT_RE.search(
+        t
+    ):
         return "table_cell"
     return "text"
 
@@ -115,10 +108,33 @@ def make_element(
     )
 
 
-def estimate_grid(bbox: list[float], cols: int = 8, rows: int = 6) -> str:
-    """Rough engineering grid label from normalized centroid."""
+def estimate_grid(
+    bbox: list[float],
+    *,
+    cols: int = 8,
+    rows: int = 6,
+    convention: str = "row_letter_col_number",
+    approximate: bool = True,
+) -> str:
+    """Map normalized centroid to an engineering-style grid label.
+
+    Default convention for this project (synthetic samples):
+    - columns numbered 1..N left-to-right
+    - rows lettered A.. top-to-bottom
+    Label format: ``A3`` (row letter + column number).
+
+    Supplied AutoCAD sheets often use letters on one axis and numbers on the
+    other; when title-block detection is unavailable, results are marked
+    approximate via the trailing ``~`` when ``approximate`` is True.
+    """
     cx = (bbox[0] + bbox[2]) / 2
     cy = (bbox[1] + bbox[3]) / 2
     col = min(cols - 1, max(0, int(cx * cols)))
     row = min(rows - 1, max(0, int(cy * rows)))
-    return f"{chr(ord('A') + col)}{row + 1}"
+    if convention == "col_letter_row_number":
+        # legacy / alternate: letter from x, number from y
+        label = f"{chr(ord('A') + col)}{row + 1}"
+    else:
+        # preferred: row letter + column number
+        label = f"{chr(ord('A') + row)}{col + 1}"
+    return f"{label}~" if approximate else label
