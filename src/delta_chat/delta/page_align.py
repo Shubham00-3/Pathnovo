@@ -25,7 +25,7 @@ def page_similarity(a: CanonicalPage, b: CanonicalPage) -> float:
     return min(1.0, score)
 
 
-def align_pages(doc_a: DocumentRevision, doc_b: DocumentRevision) -> list[dict]:
+def align_pages(doc_a: DocumentRevision, doc_b: DocumentRevision) -> dict:
     """Return matched page pairs and unmatched pages."""
     remaining_b = set(range(len(doc_b.pages)))
     matches = []
@@ -58,4 +58,4 @@ def align_pages(doc_a: DocumentRevision, doc_b: DocumentRevision) -> list[dict]:
         "matches": matches,
         "unmatched_a": unmatched_a,
         "unmatched_b": unmatched_b,
-    }  # type: ignore[return-value]
+    }

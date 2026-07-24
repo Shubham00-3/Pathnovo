@@ -341,7 +341,7 @@ def compute_delta(
                 page_number=pb.page_number,
                 existing_boxes=explained_boxes,
             )
-            suppressed += int(reg.get("suppressed_visual") or 0)
+            suppressed += int(reg.get("suppressed_visual") or 0)  # type: ignore[arg-type]
             for i, c in enumerate(comps):
                 ctype = str(c.get("change_type") or "added")
                 if ctype not in {"added", "removed", "modified"}:
@@ -351,7 +351,7 @@ def compute_delta(
                     match_score=0.55,
                     features={"geometry": 0.8, "spatial": 0.6},
                     extraction_conf=0.6,
-                    registration_conf=float(reg.get("confidence", 0.0)),
+                    registration_conf=float(reg.get("confidence") or 0.0),
                     pair_score=pair_score,
                     bands=bands,
                 )

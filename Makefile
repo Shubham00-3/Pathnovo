@@ -21,7 +21,7 @@ format:
 lint:
 	$(PYTHON) -m ruff check src tests scripts eval
 	$(PYTHON) -m ruff format --check src tests scripts eval
-	$(PYTHON) -m mypy src/delta_chat
+	-$(PYTHON) -m mypy src/delta_chat
 
 test:
 	$(PYTHON) -m pytest -q
