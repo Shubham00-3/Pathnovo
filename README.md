@@ -4,6 +4,19 @@ Format-agnostic pipeline that resolves two **PIDs**, normalizes them into a **ca
 
 **Primary UI:** React (Vite) served by **FastAPI** on port **8000**.
 
+## Live demo
+
+**<https://pathnovo-ievadaslya-el.a.run.app>**
+
+Google Cloud Run, scale-to-zero — **the first request takes 30–60s to cold-start**, then it is quick. Try `PID-SYN-A` / `PID-SYN-B` (native PDF) or `PID-CAD-A` / `PID-CAD-B` (DXF), then ask *"What changed near 26-PIT-9080?"* on the CAD pair.
+
+Two things about it worth knowing before you read the numbers:
+
+- **Chat there runs a real hosted LLM** — Groq `openai/gpt-oss-20b` through LiteLLM. Answers are labelled `litellm` in the UI and carry validated citations. That is *not* the repo default, which is the no-key deterministic `extractive` provider.
+- **The Evaluation tab shows the committed baseline, not a live run.** Run artifacts on Cloud Run are ephemeral, so the endpoint falls back to `eval/baseline.json` and labels itself as a baseline. Those chat metrics were produced by the **extractive** provider — no scorecard in this repo grades the Groq path. See [Eval integrity](#eval-integrity).
+
+There is no upload endpoint; every route resolves PIDs from the bundled synthetic samples, which is why an unauthenticated demo is safe. Instance concurrency is pinned to 1 so a chat request reaches the instance that produced the comparison — correct for a single-reviewer demo, wrong for real use, and explained in [DEPLOY.md](DEPLOY.md).
+
 ## Start here
 
 ```bash
@@ -20,6 +33,7 @@ If you have five minutes and want the substance rather than the tour:
 | What does a failed request look like? | [`docs/failure-traces/`](docs/failure-traces/) — three real failures, committed |
 | Where is the LLM, and where is it deliberately not? | [Where the LLM is, and is not](#where-the-llm-is-and-is-not) |
 | What doesn't work? | [Where it fails](#where-it-fails) |
+| Can I just click something? | [Live demo](#live-demo) — allow 30–60s for cold start |
 
 The honest headline: three formats run end-to-end, the delta engine is deterministic and does real alignment rather than text diffing, and the evaluation is now falsifiable — but the chat metrics grade a deterministic extractive provider, **not** a hosted LLM, and nothing here measures real LLM hallucination.
 
