@@ -54,6 +54,9 @@ visual_diff:
   residual_threshold: 40
   suppress_border_ratio: 0.05
   max_emit: 6
+  # Fraction of the smaller box that must overlap an already-reported change
+  # before residual ink is treated as explained rather than as a new change.
+  explained_overlap_threshold: 0.6
 
 confidence:
   high: 0.78

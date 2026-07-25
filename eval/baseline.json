@@ -1,20 +1,20 @@
 {
-  "run_id": "6bd412488b",
+  "run_id": "cb84189710",
   "seed": 42,
-  "git_sha": "478cbd517ffaee48f4e7c471d01ead1402f0459f",
-  "config_hash": "ce6cbe8115dc64db",
+  "git_sha": "835778f0edef050d9e974183d889df89e90377ef",
+  "config_hash": "8231ef4b4c0c1391",
   "ocr_available": true,
   "ocr_backend": "rapidocr",
   "cad_available": true,
   "native_delta_f1": 0.9231,
-  "scanned_delta_f1": 0.6667,
+  "scanned_delta_f1": 0.9231,
   "cad_delta_f1": 0.8333,
   "delta_micro": {
-    "precision": 0.7241,
+    "precision": 0.875,
     "recall": 0.9545,
-    "f1": 0.8235,
+    "f1": 0.913,
     "tp": 21,
-    "fp": 8,
+    "fp": 3,
     "fn": 1
   },
   "pair_mismatch_accuracy": 1.0,
@@ -45,11 +45,11 @@
       "required": true,
       "compatible": true,
       "delta_metrics": {
-        "precision": 0.5,
+        "precision": 0.8571,
         "recall": 1.0,
-        "f1": 0.6667,
+        "f1": 0.9231,
         "tp": 6,
-        "fp": 6,
+        "fp": 1,
         "fn": 0
       }
     },
@@ -89,7 +89,7 @@
       }
     }
   ],
-  "generated_at": 1784970229.1781979,
+  "generated_at": 1784972631.4865496,
   "gates": {
     "native_delta_f1": true,
     "scanned_delta_f1": true,
@@ -124,8 +124,8 @@
       "chat.chat.request": {
         "sample_size": 5,
         "p50_ms": 2.0,
-        "p95_ms": 3.79,
-        "max_ms": 3.79,
+        "p95_ms": 3.84,
+        "max_ms": 3.84,
         "budget_p95_ms": 5000.0,
         "within_budget": true
       },
@@ -138,8 +138,8 @@
       "chat.llm.answer": {
         "sample_size": 4,
         "p50_ms": 0.0,
-        "p95_ms": 1.78,
-        "max_ms": 1.78
+        "p95_ms": 1.0,
+        "max_ms": 1.0
       },
       "chat.prompt.build": {
         "sample_size": 4,
@@ -150,38 +150,38 @@
       "chat.retrieval.query": {
         "sample_size": 4,
         "p50_ms": 2.0,
-        "p95_ms": 2.0,
-        "max_ms": 2.0
+        "p95_ms": 3.17,
+        "max_ms": 3.17
       },
       "delta.engine": {
         "sample_size": 5,
-        "p50_ms": 518.92,
-        "p95_ms": 2334.59,
-        "max_ms": 2334.59,
+        "p50_ms": 527.04,
+        "p95_ms": 2360.44,
+        "max_ms": 2360.44,
         "budget_p95_ms": 8000.0,
         "within_budget": true
       },
       "ingest.a": {
         "sample_size": 5,
-        "p50_ms": 96.81,
-        "p95_ms": 3397.12,
-        "max_ms": 3397.12,
+        "p50_ms": 98.63,
+        "p95_ms": 3389.56,
+        "max_ms": 3389.56,
         "budget_p95_ms": 12000.0,
         "within_budget": true
       },
       "ingest.b": {
         "sample_size": 5,
-        "p50_ms": 93.61,
-        "p95_ms": 2431.91,
-        "max_ms": 2431.91,
+        "p50_ms": 94.01,
+        "p95_ms": 2414.96,
+        "max_ms": 2414.96,
         "budget_p95_ms": 12000.0,
         "within_budget": true
       },
       "markup.overlay": {
         "sample_size": 5,
-        "p50_ms": 131.1,
-        "p95_ms": 295.83,
-        "max_ms": 295.83,
+        "p50_ms": 132.52,
+        "p95_ms": 308.22,
+        "max_ms": 308.22,
         "budget_p95_ms": 2000.0,
         "within_budget": true
       },
@@ -193,44 +193,44 @@
       },
       "pid.resolve.a": {
         "sample_size": 5,
-        "p50_ms": 1.12,
+        "p50_ms": 1.02,
         "p95_ms": 2.0,
         "max_ms": 2.0
       },
       "pid.resolve.b": {
         "sample_size": 5,
         "p50_ms": 1.01,
-        "p95_ms": 2.0,
-        "max_ms": 2.0
+        "p95_ms": 1.46,
+        "max_ms": 1.46
       },
       "report.write": {
         "sample_size": 5,
-        "p50_ms": 3.0,
-        "p95_ms": 74.53,
-        "max_ms": 74.53,
+        "p50_ms": 3.43,
+        "p95_ms": 74.37,
+        "max_ms": 74.37,
         "budget_p95_ms": 500.0,
         "within_budget": true
       },
       "retrieval.index": {
         "sample_size": 5,
-        "p50_ms": 3.01,
-        "p95_ms": 206.83,
-        "max_ms": 206.83,
+        "p50_ms": 3.29,
+        "p95_ms": 287.33,
+        "max_ms": 287.33,
         "budget_p95_ms": 500.0,
         "within_budget": true
       }
     },
     "end_to_end": {
       "sample_size": 5,
-      "p50_ms": 1991.4,
-      "p95_ms": 6531.26,
-      "max_ms": 6531.26,
+      "p50_ms": 2002.53,
+      "p95_ms": 6513.2,
+      "max_ms": 6513.2,
       "budget_p95_ms": 30000.0,
       "within_budget": true
     },
     "cost": {
       "llm_calls": 9,
-      "total_tokens": 1744,
+      "total_tokens": 1756,
       "total_cost_usd": null,
       "cost_status": "unavailable",
       "cost_reasons": [

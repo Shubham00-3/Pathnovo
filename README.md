@@ -31,7 +31,7 @@ Reproduce with `make eval` (numbers from `artifacts/eval/latest.json`):
 | Metric | Value |
 |---|---|
 | Native delta F1 | **0.923** |
-| Scanned delta F1 | **0.667** |
+| Scanned delta F1 | **0.923** |
 | CAD delta F1 | **0.833** |
 | Pair mismatch accuracy | **1.00** |
 | Retrieval recall@5 | **1.00** |
@@ -125,13 +125,15 @@ Honest, current, and reproduced by `make eval`:
 
 | Failure | Cause | Status |
 |---|---|---|
-| Scanned precision 0.50 (6 FPs) | Visual-residual geometry regions fire on raster noise that survives registration | **Open.** Biggest remaining quality gap |
-| CAD 1 FP + 1 FN | Added branch is detected as its `HV-305` label, whose centroid sits outside the ground-truth region's 0.08 tolerance | **Open.** Real localization limit, not a labeling artifact |
+| Scanned + CAD each report 1 FP | An added branch is reported as *two* findings — the geometry region and its valve label (`HV-205` / `HV-305`) — where ground truth labels the whole thing as one region | **Labeling granularity, not a detection defect.** The system arguably has this right; I left the ground truth alone rather than widen a label to improve a number |
+| CAD 1 FN | Same branch: the matched finding's centroid sits outside the 0.08 location tolerance | **Open.** Scoring should accept either the region or its label |
 | Native 1 FP | One low-confidence residual region | Open, low impact |
 | DWG not end-to-end | No usable open-source DWG reader | **By design** — converter seam, explicit error |
 | Dense multi-sheet CAD | Registration/layout assumes one sheet per page | Rejects low-confidence registration rather than guessing |
 
-Two false-positive sources were found and fixed during this work, both worth naming because they were silent:
+Three false-positive sources were found and fixed, all worth naming because all three were silent:
+
+- **Residual ink reported twice.** The delta engine recorded which regions a semantic change explained, so the pixel-residual pass could skip them — but it recorded only the *new* position of a matched element and nothing at all for removals. A moved transmitter left its vacated region unexplained, and every removed element was reported once semantically and again as residual geometry. Suppression also used IoU, which cannot see containment: two ink blobs inside an added `NOTE 12` line have IoU far below any usable threshold despite being the same ink. Now both sides of a match are recorded, removals record their region, and suppression uses symmetric containment. **Scanned F1 0.667 → 0.923**, precision 0.50 → 0.857, with native and CAD unchanged — verified by `make eval-compare`, which is what that tool is for.
 
 - **Unstable line grouping.** Fixed-height bucketing of OCR words put identical content in different groups on Rev A and Rev B, manufacturing 4 phantom changes from one drawing region. Replaced with vertical-overlap clustering plus a horizontal-gap break, and line-granular engines are no longer re-grouped at all. Scanned F1 0.52 → 0.60.
 - **Whitespace-only OCR differences.** `NOTE 10:See package` vs `NOTE10:Seepackage` is the same ink; word segmentation is the recognizer's artifact, not the drawing's. Suppressed for OCR-sourced elements only, and only when whitespace *placement* differs — any glyph or digit change still reports, so `12000 → 12500` is unaffected. Scanned F1 0.60 → **0.667**.
@@ -155,8 +157,8 @@ A retrieval bug was also fixed: delta records carry their *neighbours'* tags, so
 
 ## What I would do next
 
-1. **Kill the scanned false positives.** The visual-residual path needs a stability check across a registration-jittered pair rather than a fixed threshold; this is the difference between 0.67 and something shippable.
-2. **Region-level ground truth for geometry changes.** The CAD FN is really a labeling-granularity problem: an added branch is a region, but the system reports its most identifiable element. Scoring should accept either.
+1. **Region-level ground truth for geometry changes.** The remaining FP/FN on both the scanned and CAD cases is one problem: an added branch is a *region* in the labels but the system reports both the region and its valve label. Scoring should accept either, or the labels should enumerate both. This is worth doing before chasing any more matcher accuracy, because right now the metric penalises correct behaviour.
+2. **Residual stability across registration jitter.** Suppression is now correct for explained ink, but the threshold on unexplained residual is still fixed. A stability check across a jittered re-registration would separate real geometry change from raster noise on harder scans than these fixtures.
 3. **500-sheet scale.** Everything is currently per-page and in-memory. That means sheet-level partitioning, a persistent index, and matching restricted to candidate blocks rather than a full cost matrix — the `max_pair_comparisons` guard already exists and would trip immediately.
 4. **Validate the judge.** Chat scoring is deterministic string/citation checking, which is honest but shallow. An LLM judge needs its own labeled agreement set before I would trust it.
 5. **Real DWG.** Bundle the ODA converter in the image where licensing permits, and add a conversion-fidelity check comparing entity counts before and after.

@@ -47,6 +47,7 @@ def residual_geometry_changes(
     border = float(vcfg.get("suppress_border_ratio", 0.05))
     # Policy cap: emit up to max_emit high-area components; remainder counted suppressed
     max_emit = int(vcfg.get("max_emit", 6))
+    overlap_thr = float(vcfg.get("explained_overlap_threshold", 0.6))
     max_pixels = int(vcfg.get("max_image_pixels", config.get("max_render_pixels", 20_000_000)))
 
     ga = _load_gray_bounded(render_a, max_pixels=max_pixels)
@@ -87,7 +88,15 @@ def residual_geometry_changes(
             if ww * hh > 0.25 * w * h:
                 continue
             nb = [x / w, y / h, (x + ww) / w, (y + hh) / h]
-            if any(_iou(nb, eb) > 0.35 for eb in existing_boxes):
+            # Suppress residual that a semantic change already accounts for.
+            #
+            # IoU is the wrong test here. A residual fragment sitting wholly
+            # inside a larger reported change -- say two ink blobs inside an
+            # added NOTE line -- has an IoU near the area ratio, far below any
+            # sane threshold, so it survived and was reported as a second,
+            # unexplained change. Containment is what actually matters: if the
+            # smaller box is mostly inside the larger, it is the same ink.
+            if any(_containment(nb, eb) > overlap_thr for eb in existing_boxes):
                 continue
             out.append(
                 {
@@ -122,15 +131,33 @@ def residual_geometry_changes(
     return emitted
 
 
-def _iou(a: list[float], b: list[float]) -> float:
+def _intersection(a: list[float], b: list[float]) -> float:
     ax0, ay0, ax1, ay1 = a
     bx0, by0, bx1, by1 = b
-    ix0, iy0 = max(ax0, bx0), max(ay0, by0)
-    ix1, iy1 = min(ax1, bx1), min(ay1, by1)
-    iw, ih = max(0.0, ix1 - ix0), max(0.0, iy1 - iy0)
-    inter = iw * ih
+    iw = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+    ih = max(0.0, min(ay1, by1) - max(ay0, by0))
+    return iw * ih
+
+
+def _iou(a: list[float], b: list[float]) -> float:
+    inter = _intersection(a, b)
     if inter <= 0:
         return 0.0
-    aa = max(0.0, ax1 - ax0) * max(0.0, ay1 - ay0)
-    bb = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
+    aa = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    bb = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
     return inter / max(1e-9, aa + bb - inter)
+
+
+def _containment(a: list[float], b: list[float]) -> float:
+    """Fraction of the *smaller* box covered by the overlap.
+
+    Symmetric on purpose: a residual blob inside a reported text box and a
+    residual region enclosing a reported tag are both the same ink seen twice,
+    and neither is caught by IoU.
+    """
+    inter = _intersection(a, b)
+    if inter <= 0:
+        return 0.0
+    aa = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    bb = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    return inter / max(1e-9, min(aa, bb))

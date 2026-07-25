@@ -245,7 +245,14 @@ def compute_delta(
                 review_required=band != "high",
             )
             changes.append(item)
+            # Record both sides. A `moved` element leaves ink at its old
+            # position and puts ink at the new one; recording only the new box
+            # leaves the vacated region unexplained, and the residual pass then
+            # reports it as a separate spurious removal.
             explained_boxes.append(list(eb.bbox))
+            explained_boxes.append(
+                list(transform_bbox_affine(ea.bbox, matrix)) if matrix else list(ea.bbox)
+            )
 
         # unmatched
         for eid in matched["unmatched_a"]:
@@ -290,6 +297,12 @@ def compute_delta(
                     confidence_factors=factors,
                     review_required=band != "high",
                 )
+            )
+            # A removal explains the ink that disappeared at that location. This
+            # was previously missing entirely, so every removed element was
+            # reported twice: once semantically and once as residual geometry.
+            explained_boxes.append(
+                list(transform_bbox_affine(ea.bbox, matrix)) if matrix else list(ea.bbox)
             )
         for eid in matched["unmatched_b"]:
             eb = id_to_b[eid]
