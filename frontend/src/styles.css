@@ -1,18 +1,22 @@
 :root {
-  --bg: #0b0e13;
-  --panel: #131820;
-  --panel2: #1a2230;
-  --line: #2a3545;
-  --ink: #e8eef7;
-  --mut: #93a0b4;
-  --brand: #4c8dff;
-  --brand2: #7c5cff;
-  --ok: #2fbf71;
-  --warn: #f5a524;
-  --bad: #ef5d5d;
-  --chip: #212a38;
-  --mono: "IBM Plex Mono", ui-monospace, monospace;
-  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  /* Near-neutral greys. The previous palette was blue-tinted throughout, which
+     read as decoration; colour is now reserved for meaning -- change type,
+     confidence band, pass/fail -- so those actually stand out. */
+  --bg: #0d0f11;
+  --panel: #141719;
+  --panel2: #1b1f22;
+  --line: #262b30;
+  --line-soft: #1f2427;
+  --ink: #e6e8ea;
+  --mut: #8b9298;
+  --brand: #6ea8fe;
+  --ok: #4ec98a;
+  --warn: #e0a341;
+  --bad: #e8695f;
+  --chip: #1b1f22;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 6px;
   color-scheme: dark;
 }
 
@@ -31,10 +35,10 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(1000px 420px at 8% -10%, rgba(76, 141, 255, 0.16), transparent 55%),
-    radial-gradient(900px 380px at 92% -15%, rgba(124, 92, 255, 0.12), transparent 55%),
-    var(--bg);
+  /* Flat. The two radial brand glows were pure ornament. */
+  background: var(--bg);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
@@ -46,104 +50,102 @@ textarea {
 }
 
 .app {
-  max-width: 1240px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 28px 22px 60px;
+  padding: 40px 24px 64px;
 }
 
 .hero {
-  margin-bottom: 22px;
-}
-
-.kicker {
-  display: inline-block;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--mut);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 11px;
-  background: var(--panel);
+  margin-bottom: 26px;
 }
 
 .hero h1 {
-  margin: 14px 0 8px;
-  font-size: 32px;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-
-.hero h1 span {
-  background: linear-gradient(90deg, var(--brand), var(--brand2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  margin: 0 0 8px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
 .sub {
   color: var(--mut);
-  max-width: 70ch;
+  max-width: 68ch;
   margin: 0;
-  font-size: 16px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.6;
 }
 
+/* One quiet status line replaces the row of stack-boast chips. Framework names
+   belong in the README, not in the product chrome. */
 .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.chip {
-  background: var(--chip);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 7px 11px;
-  font-size: 13px;
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+  font-size: 12.5px;
   color: var(--mut);
 }
 
-.chip b {
-  color: var(--ink);
-  font-weight: 600;
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
+.status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mut);
+}
+
+.status.up i {
+  background: var(--ok);
+}
+
+.status.down i {
+  background: var(--bad);
+}
+
+.meta-item b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Underlined tabs read as navigation; pill tabs read as buttons. */
 .tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 18px 0 14px;
+  gap: 2px;
+  margin: 0 0 20px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
 }
 
 .tab {
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
   color: var(--mut);
-  padding: 8px 12px;
-  border-radius: 10px;
+  padding: 9px 13px;
+  margin-bottom: -1px;
+  font-size: 13.5px;
   cursor: pointer;
 }
 
 .tab:hover {
   color: var(--ink);
-  background: var(--panel);
 }
 
 .tab.active {
   color: var(--ink);
-  background: var(--panel2);
-  border-color: var(--line);
+  border-bottom-color: var(--brand);
 }
 
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 18px;
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .grid2 {
@@ -173,7 +175,7 @@ textarea {
   width: 100%;
   background: var(--panel2);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 10px 12px;
   outline: none;
 }
@@ -195,19 +197,26 @@ textarea {
 .btn {
   border: 1px solid var(--line);
   background: var(--panel2);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 10px 14px;
   cursor: pointer;
 }
 
 .btn:hover {
-  border-color: #3d4d63;
+  border-color: #3a4147;
 }
 
 .btn.primary {
-  background: linear-gradient(90deg, #3a74e0, #6346d8);
-  border-color: transparent;
-  font-weight: 600;
+  /* Flat brand fill; the blue-to-purple gradient was the loudest thing on screen. */
+  background: #2f6fd0;
+  border-color: #2f6fd0;
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn.primary:hover {
+  background: #3a7ce0;
+  border-color: #3a7ce0;
 }
 
 .btn:disabled {
@@ -215,30 +224,45 @@ textarea {
   cursor: not-allowed;
 }
 
+/* Artifact links are anchors styled as buttons; without this they render with
+   a box *and* a browser underline, which reads as two controls at once. */
+a.btn {
+  text-decoration: none;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+a.btn:hover {
+  color: #fff;
+  border-color: #3a4147;
+}
+
+/* Confirmations are transient information, not achievements. A left rule and
+   coloured text carry the state without a full-width tinted bar. */
 .alert {
-  margin-top: 14px;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 14px;
-  line-height: 1.45;
+  margin: 0 0 16px;
+  border-left: 2px solid var(--line);
+  padding: 2px 0 2px 11px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mut);
 }
 
 .alert.error {
-  background: rgba(239, 93, 93, 0.12);
-  border: 1px solid rgba(239, 93, 93, 0.35);
-  color: #ffb0b0;
+  border-left-color: var(--bad);
+  color: #f0a49c;
 }
 
 .alert.ok {
-  background: rgba(47, 191, 113, 0.1);
-  border: 1px solid rgba(47, 191, 113, 0.35);
-  color: #9ce6bd;
+  border-left-color: var(--ok);
+  color: #8fc9a9;
 }
 
 .alert.warn {
-  background: rgba(245, 165, 36, 0.1);
-  border: 1px solid rgba(245, 165, 36, 0.35);
-  color: #ffd58a;
+  border-left-color: var(--warn);
+  color: #d8b57e;
 }
 
 .cards {
@@ -255,24 +279,25 @@ textarea {
 }
 
 .card {
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 12px 14px;
 }
 
 .card .label {
   color: var(--mut);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .card .value {
-  font-size: 22px;
-  font-weight: 700;
-  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 500;
+  margin-top: 6px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .card .value.small {
@@ -289,10 +314,10 @@ textarea {
 
 .mini-pill {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 3px;
   padding: 4px 8px;
   color: var(--mut);
-  background: #101620;
+  background: var(--panel);
   font-family: var(--mono);
   font-size: 11px;
 }
@@ -314,16 +339,24 @@ textarea {
   margin-bottom: 12px;
 }
 
+/* Eight boxed pills for eight checkboxes was more chrome than content; the
+   checkbox already carries the affordance. */
+.filters {
+  gap: 14px;
+  padding: 2px 0 4px;
+}
+
 .filters label {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--mut);
+  cursor: pointer;
+}
+
+.filters label:hover {
+  color: var(--ink);
 }
 
 .search-field {
@@ -370,7 +403,7 @@ tbody tr:hover {
 
 .badge {
   display: inline-block;
-  border-radius: 999px;
+  border-radius: 3px;
   padding: 2px 8px;
   font-size: 11px;
   font-weight: 600;
@@ -398,7 +431,7 @@ tbody tr:hover {
   color: #ffd58a;
 }
 .badge.low {
-  color: #b8c0cc;
+  color: var(--mut);
 }
 
 .mono {
@@ -411,9 +444,9 @@ tbody tr:hover {
 }
 
 .pre {
-  background: #0a0d12;
+  background: #0b0d0f;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 12px;
   overflow: auto;
   max-height: 420px;
@@ -434,7 +467,7 @@ tbody tr:hover {
   margin: 0;
   background: var(--panel2);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -459,7 +492,7 @@ tbody tr:hover {
 
 .bubble {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 12px 14px;
   background: var(--panel2);
 }
@@ -481,16 +514,16 @@ tbody tr:hover {
 .cite {
   margin-top: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 8px 10px;
-  background: #0d121a;
+  background: #0b0d0f;
 }
 
 .cite summary {
   cursor: pointer;
   font-family: var(--mono);
   font-size: 12px;
-  color: #a9c7ff;
+  color: var(--brand);
 }
 
 .cite > div {
@@ -502,7 +535,7 @@ tbody tr:hover {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #a9c7ff;
+  color: var(--brand);
   cursor: pointer;
   text-decoration: underline;
 }

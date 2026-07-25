@@ -222,21 +222,21 @@ export default function App() {
   return (
     <div className="app">
       <header className="hero">
-        <span className="kicker">Applied AI · Document Delta</span>
-        <h1>
-          Document Delta & <span>Grounded Chat</span>
-        </h1>
+        <h1>Document Delta &amp; Grounded Chat</h1>
         <p className="sub">
-          Compare two P&ID revisions, inspect structured and visual changes, follow the
+          Compare two P&amp;ID revisions, inspect structured and visual changes, follow the
           processing trace, and ask questions backed by retrieved evidence.
         </p>
         <div className="meta">
-          <div className="chip">UI · <b>React + Vite</b></div>
-          <div className="chip">API · <b>FastAPI</b></div>
-          <div className="chip">
-            Backend · <b>{apiOk === null ? "…" : apiOk ? "connected" : "offline"}</b>
-          </div>
-          {run && <div className="chip">Run · <b className="mono">{run.request_id}</b></div>}
+          <span className={`status ${apiOk ? "up" : "down"}`}>
+            <i aria-hidden="true" />
+            {apiOk === null ? "connecting" : apiOk ? "API connected" : "API offline"}
+          </span>
+          {run && (
+            <span className="meta-item">
+              run <b className="mono">{run.request_id}</b>
+            </span>
+          )}
         </div>
       </header>
 
