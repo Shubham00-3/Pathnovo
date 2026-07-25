@@ -63,23 +63,36 @@ directly. The image is already compatible — it runs as uid 1000 and honours
 
 First build takes ~10 minutes. Subsequent pushes are faster.
 
-## Alternative: Google Cloud Run
+## Google Cloud Run (current live deployment)
 
-Better if you want scale-to-zero and a custom domain. Needs a billing account,
-though this workload stays inside the free tier.
+Scale-to-zero, so an idle demo costs nothing. Needs a billing account.
 
 ```bash
-gcloud run deploy delta-chat \
+gcloud run deploy pathnovo \
   --source . \
-  --region us-central1 \
+  --region asia-south1 \
   --memory 4Gi \
   --cpu 2 \
   --timeout 300 \
-  --allow-unauthenticated
+  --concurrency 1 \
+  --max-instances 1 \
+  --min-instances 0 \
+  --allow-unauthenticated \
+  --set-env-vars LLM_PROVIDER=extractive,DELTA_CHAT_CONFIG=config/default.yaml
 ```
 
-Cloud Run injects `PORT`; the container already honours it. Raise `--timeout`
-above the default if you plan to run the mismatch pair, whose delta is large.
+Cloud Run injects `PORT`; the container honours it. `--timeout 300` matters —
+the mismatch pair produces a 624-change delta and will exceed the default.
+
+**`--concurrency 1` and `--max-instances 1` are load-bearing, not tuning.** Run
+artifacts are written to the container filesystem, so a chat request must reach
+the same instance that produced the comparison it is asking about. Fan the
+service out and chat will intermittently 404 against a run it cannot see. This
+is the right trade for a single-reviewer demo and the wrong one for real use —
+production would write artifacts to Cloud Storage and drop both limits. The same
+ephemerality means run artifacts vanish when the instance is recycled; the
+Evaluation tab falls back to the committed `eval/baseline.json` and labels it as
+a baseline rather than a live run.
 
 ## Alternative: Fly.io
 
@@ -103,6 +116,33 @@ docker compose up --build      # http://localhost:8000
 
 Compose binds to `127.0.0.1` deliberately, so the local demo is not exposed on
 your network.
+
+## Enabling a real LLM (optional)
+
+The deployed demo runs `LLM_PROVIDER=extractive` — deterministic, no key, no
+external calls, no bill. The LiteLLM path in `src/delta_chat/chat/llm.py` is
+real but is not exercised by the default image, and the README says so rather
+than implying a hosted model was evaluated.
+
+To turn it on:
+
+1. Build with the extra: `docker build --build-arg INSTALL_LLM=true .`
+   The default is `false` because litellm is large and the default deployment
+   never executes that path.
+2. Set `LLM_PROVIDER` and `LLM_MODEL`.
+3. Store the provider key as a **secret**, not a plain env var:
+
+   ```bash
+   gcloud run services update pathnovo \
+     --update-secrets OPENAI_API_KEY=projects/PROJECT/secrets/openai-key:latest
+   ```
+
+4. Keep `extractive` as the fallback so the system still runs without a key.
+5. Verify real token counts, latency and cost land in `llm_calls.jsonl`, and
+   that citations still validate. Cost reports as `unavailable` until a provider
+   returns a real figure — never `0.00`.
+
+Never commit, echo, or log the key. Nothing in this repo requires one.
 
 ## Before you make it public
 

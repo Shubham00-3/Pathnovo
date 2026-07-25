@@ -11,6 +11,9 @@ type Tab = "setup" | "delta" | "markup" | "chat" | "obs" | "eval";
 type ChatTurn = { question: string; answer: ChatAnswer };
 type EvalData = {
   available: boolean;
+  // "run" is a scorecard produced on this instance; "baseline" is the committed
+  // record of a previous verified run. They must not look the same.
+  source?: "run" | "baseline" | null;
   run_id?: string;
   scorecard?: { summary?: Record<string, unknown> };
   scorecard_md?: string;
@@ -470,7 +473,15 @@ export default function App() {
           </div>
           {!evalData?.available ? <p className="muted">No evaluation artifacts yet.</p> : (
             <>
-              <p className="muted">Latest run: <span className="mono">{evalData.run_id}</span></p>
+              {evalData.source === "baseline" ? (
+                <p className="muted">
+                  Committed baseline <span className="mono">{evalData.run_id}</span> — no eval has
+                  run on this instance. Run <span className="mono">python -m eval.run</span> for a
+                  live scorecard.
+                </p>
+              ) : (
+                <p className="muted">Latest run: <span className="mono">{evalData.run_id}</span></p>
+              )}
               <div className="cards">
                 <div className="card"><div className="label">All gates</div><div className="value small">{evalSummary.all_gates_passed === true ? "PASS" : "FAIL"}</div></div>
                 <div className="card"><div className="label">Native F1</div><div className="value">{String(evalSummary.native_delta_f1 ?? "—")}</div></div>

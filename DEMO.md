@@ -24,7 +24,7 @@ No system binaries needed — OCR and CAD both install via pip.
 
 2. **Native pair** — `PID-SYN-A` / `PID-SYN-B`, mode `warn` → **Run comparison**. Six controlled changes: HH 245→250, duty 12000→12500, added NOTE 12, removed line tag, moved `26-PT-9070`, geometry branch. Open `delta.json` and `report.md`; note every change carries a type, a page + grid region, and a confidence band.
 
-3. **Third format** — `PID-CAD-A` / `PID-CAD-B`. Same pipeline, DXF input. Six changes found, zero false positives: exact vector coordinates mean no extraction noise, which is the cleanest demonstration that the canonical seam actually decouples format from delta.
+3. **Third format** — `PID-CAD-A` / `PID-CAD-B`. Same pipeline, DXF input, and adding it required no change to the delta engine, retrieval, or chat — the clearest evidence the canonical seam actually decouples format from delta. Six changes surface; scored against ground truth that is 5 true positives, 1 false positive, 1 miss (F1 0.833). The FP and the miss are the same thing: an added branch is reported as both a geometry region and its `HV-305` label, where the labels record one region.
 
 4. **Markup** — download `markup.pdf`. For CAD there is no source PDF, so the overlay is drawn on the adapter's page render; `canvas_basis` in the trace records which was used.
 
@@ -46,7 +46,7 @@ No system binaries needed — OCR and CAD both install via pip.
 
 9. **Mismatch** — `PID-LIFT` / `PID-EXPORT` in warn mode → compatibility warning; strict mode → typed error. Different documents, not revisions.
 
-10. **Close** — the honest gaps: scanned precision is 0.50 from visual-residual noise, and DWG needs an external converter. Both are in the README failure table.
+10. **Close** — the honest gaps. Every format now sits at precision 0.857 or better (native 0.923 F1, scanned 0.923, CAD 0.833), and the four remaining failures are in the scorecard's failure table. Three of the four are one recurring cause: an added branch reported as both a region and its valve label, where ground truth records a single region. DWG still needs an external converter. All of it is in the README failure table.
 
 ## Notes
 

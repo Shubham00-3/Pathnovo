@@ -418,27 +418,68 @@ def api_chat(run_id: str, body: ChatRequest) -> dict[str, Any]:
         ) from exc
 
 
+def _baseline_scorecard() -> dict[str, Any] | None:
+    """The committed baseline, shaped like a scorecard.
+
+    `eval/baseline.json` stores the summary itself, so it is wrapped to match
+    the artifact layout the UI reads.
+    """
+    path = project_root() / "eval" / "baseline.json"
+    if not path.exists():
+        return None
+    try:
+        summary = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(summary, dict):
+        return None
+    return {"summary": summary}
+
+
 @app.get("/api/eval/latest")
 def latest_eval() -> dict[str, Any]:
+    """Latest eval scorecard, falling back to the committed baseline.
+
+    Run artifacts are written to the container filesystem and are ephemeral, so
+    a fresh deployment has none and the tab would read "no evaluation artifacts
+    yet" despite the repo carrying a full scorecard. The baseline is committed,
+    so it is always available.
+
+    `source` distinguishes the two: a baseline is a record of a past verified
+    run, not evidence that the eval executed on this instance, and the UI must
+    not present it as though it were.
+    """
     root = project_root() / "artifacts" / "eval"
-    if not root.exists():
-        return {"available": False}
-    runs = sorted(
-        [p for p in root.iterdir() if p.is_dir()],
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    if not runs:
-        return {"available": False}
-    latest = runs[0]
-    scorecard = latest / "scorecard.json"
-    md = latest / "scorecard.md"
-    out: dict[str, Any] = {"available": True, "run_id": latest.name}
-    if scorecard.exists():
-        out["scorecard"] = json.loads(scorecard.read_text(encoding="utf-8"))
-    if md.exists():
-        out["scorecard_md"] = md.read_text(encoding="utf-8")
-    return out
+    runs: list[Path] = []
+    if root.exists():
+        runs = sorted(
+            [p for p in root.iterdir() if p.is_dir() and (p / "scorecard.json").exists()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+
+    if runs:
+        latest = runs[0]
+        out: dict[str, Any] = {
+            "available": True,
+            "source": "run",
+            "run_id": latest.name,
+        }
+        out["scorecard"] = json.loads((latest / "scorecard.json").read_text(encoding="utf-8"))
+        md = latest / "scorecard.md"
+        if md.exists():
+            out["scorecard_md"] = md.read_text(encoding="utf-8")
+        return out
+
+    baseline = _baseline_scorecard()
+    if baseline is None:
+        return {"available": False, "source": None}
+    return {
+        "available": True,
+        "source": "baseline",
+        "run_id": baseline["summary"].get("run_id"),
+        "scorecard": baseline,
+    }
 
 
 # Serve built React app if present

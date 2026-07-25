@@ -36,8 +36,17 @@ COPY config ./config
 COPY eval ./eval
 COPY data/registry.json ./data/registry.json
 COPY data/samples/README.md ./data/samples/README.md
+
+# Include the LiteLLM provider path in the image. Off by default: litellm is a
+# large dependency and the demo runs the deterministic `extractive` provider, so
+# shipping it would be weight for a code path the default deployment never
+# executes. Build with --build-arg INSTALL_LLM=true to enable a hosted model.
+# This never bakes in a key -- credentials stay runtime-only.
+ARG INSTALL_LLM=false
+
 # synthetic samples generated at build for offline demo
-RUN pip install --no-cache-dir -e ".[dev]" \
+RUN if [ "$INSTALL_LLM" = "true" ]; then EXTRAS=".[dev,llm]"; else EXTRAS=".[dev]"; fi \
+    && pip install --no-cache-dir -e "$EXTRAS" \
     && python -c "from scripts.make_synthetic_pid_pair import main as a; from scripts.make_secondary_pid_pair import main as b; from scripts.make_scanned_pair import main as c; from scripts.make_cad_pair import main as d; from scripts.build_eval_dataset import main as e; a(); b(); c(); d(); e()" \
     && python -c "from rapidocr_onnxruntime import RapidOCR; RapidOCR()"
 
