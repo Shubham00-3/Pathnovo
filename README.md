@@ -69,7 +69,9 @@ docker compose up --build
 # http://localhost:8000
 ```
 
-Multi-stage: Node builds React, the Python image installs both OCR backends and CAD support, and pre-warms the ONNX models so the first scanned request is not slow. Private P&IDs are never copied into the image.
+Multi-stage: Node builds React, the Python image installs both OCR backends and CAD support, and pre-warms the ONNX models so the first scanned request is not slow. Runs unprivileged as uid 1000 and honours `PORT`. Private P&IDs are never copied into the image.
+
+Verified: 2.01 GB image, healthy in ~10s, all three formats reporting available on `/api/health`, and a full CAD pair + grounded chat exercised inside the container. Hosted deployment options and their resource floors are in [DEPLOY.md](DEPLOY.md) — note that a 512 MB free tier will OOM.
 
 ## Verification
 

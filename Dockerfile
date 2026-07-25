@@ -20,6 +20,14 @@ ENV PYTHONPATH=src:.
 ENV LLM_PROVIDER=extractive
 ENV DELTA_CHAT_CONFIG=config/default.yaml
 ENV PYTHONDONTWRITEBYTECODE=1
+# Hosted platforms inject the listen port (Cloud Run, Fly) or expect a fixed one
+# (Hugging Face Spaces uses 7860). Default to 8000 for local compose.
+ENV PORT=8000
+
+# Created before the build steps so ONNX model init and pip have a real HOME to
+# write into, rather than a path that only exists after USER is switched.
+RUN useradd --create-home --uid 1000 app
+ENV HOME=/home/app
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
@@ -35,13 +43,19 @@ RUN pip install --no-cache-dir -e ".[dev]" \
 
 COPY --from=frontend-build /frontend/dist ./frontend/dist
 
-# Ensure private inputs are never present
+# Belt and braces: private drawings and planning notes are gitignored and
+# dockerignored, but this guarantees they cannot reach a published image.
 RUN rm -rf data/private_inputs tmp GROK_*.md || true \
-    && mkdir -p artifacts data/private_inputs \
-    && echo "local demo only" > /app/LOCAL_ONLY.txt
+    && mkdir -p artifacts data/private_inputs
+
+# Run unprivileged. Required by Hugging Face Spaces (which runs as uid 1000) and
+# correct everywhere else. artifacts/ is written at runtime, so it must be owned
+# by the runtime user rather than root.
+RUN chown -R app:app /app /home/app
+USER app
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')" || exit 1
+  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8000')+'/api/health')" || exit 1
 
-CMD ["python", "-m", "uvicorn", "delta_chat.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec python -m uvicorn delta_chat.api:app --host 0.0.0.0 --port ${PORT:-8000}"]
