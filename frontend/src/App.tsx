@@ -53,6 +53,65 @@ function Pills({ value }: { value: unknown }) {
   );
 }
 
+const FORMAT_LABEL: Record<string, string> = {
+  "application/pdf": "PDF",
+  "image/vnd.dxf": "DXF (CAD)",
+  "image/vnd.dwg": "DWG (CAD)",
+};
+
+function formatBytes(bytes?: number): string {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * What the resolver actually resolved, shown before anything runs.
+ *
+ * The setup tab is the first thing a user sees and had nothing on it but three
+ * dropdowns. This fills it with the one fact that decides whether the
+ * comparison is even meaningful: whether both PIDs belong to the same
+ * underlying document. That is the pair-compatibility precondition, and
+ * surfacing it here means a mismatch is visible before a pipeline run rather
+ * than after one.
+ */
+function ResolvedPair({ a, b }: { a?: PidInfo; b?: PidInfo }) {
+  if (!a || !b) return null;
+  const sameDoc =
+    !!a.underlying_document_id && a.underlying_document_id === b.underlying_document_id;
+
+  return (
+    <div className="resolved">
+      <div className="resolved-grid">
+        {[a, b].map((doc, index) => (
+          <div className="resolved-col" key={doc.pid}>
+            <div className="label">{index === 0 ? "Base" : "Revised"}</div>
+            <div className="resolved-pid mono">{doc.pid}</div>
+            <dl className="resolved-meta">
+              <dt>Name</dt>
+              <dd>{doc.display_name || "—"}</dd>
+              <dt>Revision</dt>
+              <dd>{doc.revision_label || "—"}</dd>
+              <dt>Format</dt>
+              <dd>{FORMAT_LABEL[doc.media_type || ""] || doc.media_type || "—"}</dd>
+              <dt>Size</dt>
+              <dd>{formatBytes(doc.byte_size)}</dd>
+              <dt>Document</dt>
+              <dd className="mono">{doc.underlying_document_id || "—"}</dd>
+            </dl>
+          </div>
+        ))}
+      </div>
+      <p className={`resolved-verdict ${sameDoc ? "ok" : "warn"}`}>
+        {sameDoc
+          ? "Both PIDs resolve to the same underlying document — a plausible revision pair."
+          : "These PIDs belong to different underlying documents. Expect a pair-compatibility warning; strict mode will refuse."}
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("setup");
   const [pids, setPids] = useState<PidInfo[]>([]);
@@ -190,6 +249,8 @@ export default function App() {
 
   const pageCount = Math.max(1, Math.ceil(changes.length / PAGE_SIZE));
   const pagedChanges = changes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const selectedA = pids.find((p) => p.pid === pidA);
+  const selectedB = pids.find((p) => p.pid === pidB);
   const summary = run?.delta?.summary || run?.summary || {};
   const compatibility = run?.delta?.pair_compatibility || run?.pair_compatibility || {};
   const warnings = run?.delta?.warnings || run?.warnings || [];
@@ -311,6 +372,8 @@ export default function App() {
               Start with <span className="mono">PID-SYN-A / PID-SYN-B</span>.
             </span>
           </div>
+
+          <ResolvedPair a={selectedA} b={selectedB} />
           {run && (
             <div className="cards">
               <div className="card"><div className="label">Changes</div><div className="value">{String(summary.total_changes ?? "—")}</div></div>
@@ -506,7 +569,7 @@ export default function App() {
       )}
 
       <footer className="footer">
-        Business logic stays in the Python pipeline; this React app uses the local <span className="mono">/api/*</span> contract.
+        Deterministic delta engine · grounded answers with validated citations
       </footer>
     </div>
   );

@@ -148,16 +148,87 @@ textarea {
   padding: 0;
 }
 
+/* Controls sized to their content. Stretching a select to 460px for a 140px
+   value reads as a layout that gave up. */
 .grid2 {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 260px));
+  gap: 14px;
 }
 
 @media (max-width: 860px) {
   .grid2 {
     grid-template-columns: 1fr;
   }
+}
+
+/* Resolved pair summary on the setup tab. */
+.resolved {
+  margin-top: 26px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  max-width: 720px;
+}
+
+.resolved-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+
+@media (max-width: 640px) {
+  .resolved-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.resolved-col .label {
+  color: var(--mut);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.resolved-pid {
+  font-size: 14px;
+  color: var(--ink);
+  margin: 5px 0 10px;
+}
+
+.resolved-meta {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.resolved-meta dt {
+  color: var(--mut);
+}
+
+.resolved-meta dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.resolved-verdict {
+  margin: 18px 0 0;
+  padding-left: 11px;
+  border-left: 2px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.resolved-verdict.ok {
+  border-left-color: var(--ok);
+  color: var(--mut);
+}
+
+.resolved-verdict.warn {
+  border-left-color: var(--warn);
+  color: #d8b57e;
 }
 
 .field label {
