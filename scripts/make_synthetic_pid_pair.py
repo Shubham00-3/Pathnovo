@@ -37,6 +37,9 @@ class DrawSpec:
     motor: str = "Motor: 250 kW"
     service: str = "Service: Gas Lift"
     line_tag_in: str = '4"-PG-1001-A1'
+    title: str = "SYNTHETIC GAS LIFT COMPRESSOR P&ID"
+    document_id: str = "DOC-SYN-LIFT"
+    sheet: str = "S1"
     note_10: str = "NOTE 10: See package datasheet"
     note_11: str = "NOTE 11: Relief design per API"
     valve: str = "HV-101"
@@ -55,12 +58,10 @@ def _draw_drawing(page: fitz.Page, spec: DrawSpec) -> None:
 
     # title block
     page.draw_rect(fitz.Rect(PAGE_W - 320, PAGE_H - 140, PAGE_W - 40, PAGE_H - 40), width=1)
-    page.insert_text(
-        (PAGE_W - 300, PAGE_H - 120), "SYNTHETIC GAS LIFT COMPRESSOR P&ID", fontsize=10
-    )
-    page.insert_text((PAGE_W - 300, PAGE_H - 100), "DOC: DOC-SYN-LIFT", fontsize=9)
+    page.insert_text((PAGE_W - 300, PAGE_H - 120), spec.title, fontsize=10)
+    page.insert_text((PAGE_W - 300, PAGE_H - 100), f"DOC: {spec.document_id}", fontsize=9)
     page.insert_text((PAGE_W - 300, PAGE_H - 80), f"REV: {spec.rev}", fontsize=9)
-    page.insert_text((PAGE_W - 300, PAGE_H - 60), "SHEET: S1", fontsize=9)
+    page.insert_text((PAGE_W - 300, PAGE_H - 60), f"SHEET: {spec.sheet}", fontsize=9)
 
     # grid labels: columns 1..8 along top, rows A..F along left (honest approximate grid)
     for i in range(8):
@@ -258,7 +259,7 @@ def main(seed: int = 42, out_dir: str | Path | None = None) -> dict:
         },
     ]
 
-    payload = {
+    payload: dict[str, Any] = {
         "seed": seed,
         "pid_a": "PID-SYN-A",
         "pid_b": "PID-SYN-B",

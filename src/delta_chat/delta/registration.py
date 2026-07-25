@@ -7,14 +7,26 @@ from typing import Any
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from delta_chat.errors import RegistrationFailure
 
 
-def _load_gray(path: str | Path) -> np.ndarray:
+def _load_gray(path: str | Path, *, max_pixels: int) -> np.ndarray:
+    try:
+        with Image.open(path) as header:
+            width, height = header.size
+    except Exception as exc:  # noqa: BLE001
+        raise RegistrationFailure("Cannot inspect rendered page image") from exc
+    pixels = int(width) * int(height)
+    if pixels > max_pixels:
+        raise RegistrationFailure(
+            "Rendered page exceeds the registration pixel limit",
+            details={"pixels": pixels, "max_image_pixels": max_pixels},
+        )
     img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
     if img is None:
-        raise RegistrationFailure(f"Cannot read render: {path}")
+        raise RegistrationFailure("Cannot read rendered page image")
     return img
 
 
@@ -29,9 +41,10 @@ def register_pages(
     max_err = float(cfg.get("max_reproj_error", 8.0))
     min_conf = float(cfg.get("min_confidence", 0.35))
     border = float(cfg.get("border_mask_ratio", 0.04))
+    max_pixels = int(cfg.get("max_image_pixels", config.get("max_render_pixels", 20_000_000)))
 
-    ga = _load_gray(render_a)
-    gb = _load_gray(render_b)
+    ga = _load_gray(render_a, max_pixels=max_pixels)
+    gb = _load_gray(render_b, max_pixels=max_pixels)
     # resize A to B shape for consistent space
     if ga.shape != gb.shape:
         ga = cv2.resize(ga, (gb.shape[1], gb.shape[0]), interpolation=cv2.INTER_AREA)
@@ -44,7 +57,8 @@ def register_pages(
     mask[:, :bx] = 0
     mask[:, -bx:] = 0
 
-    orb = cv2.ORB_create(nfeatures=max_features)
+    orb_create = getattr(cv2, "ORB_create")
+    orb = orb_create(nfeatures=max_features)
     kpa, desa = orb.detectAndCompute(ga, mask)
     kpb, desb = orb.detectAndCompute(gb, mask)
 
@@ -65,8 +79,14 @@ def register_pages(
             if m.distance < 0.75 * n.distance:
                 good.append(m)
         if len(good) >= 8:
-            src = np.float32([kpa[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-            dst = np.float32([kpb[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+            src = np.asarray(
+                [[float(v) for v in kpa[m.queryIdx].pt] for m in good],
+                dtype=np.float32,
+            ).reshape(-1, 1, 2)
+            dst = np.asarray(
+                [[float(v) for v in kpb[m.trainIdx].pt] for m in good],
+                dtype=np.float32,
+            ).reshape(-1, 1, 2)
             M, inlier_mask = cv2.estimateAffinePartial2D(
                 src, dst, method=cv2.RANSAC, ransacReprojThreshold=max_err
             )
@@ -94,7 +114,8 @@ def register_pages(
             gb_f = gb.astype(np.float32) / 255.0
             warp = np.eye(2, 3, dtype=np.float32)
             criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-5)
-            cc, warp = cv2.findTransformECC(gb_f, ga_f, warp, cv2.MOTION_AFFINE, criteria)
+            cc, ecc_warp = cv2.findTransformECC(gb_f, ga_f, warp, cv2.MOTION_AFFINE, criteria)
+            warp = np.asarray(ecc_warp, dtype=np.float32)
             matrix = warp.astype(np.float64)
             method = "ecc"
             confidence = float(max(confidence, min(1.0, float(cc))))

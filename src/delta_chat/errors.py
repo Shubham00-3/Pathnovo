@@ -34,6 +34,10 @@ class CorruptDocumentError(DeltaChatError):
     code = "corrupt_document"
 
 
+class ResourceLimitError(DeltaChatError):
+    code = "resource_limit"
+
+
 class OcrFailure(DeltaChatError):
     code = "ocr_failure"
 

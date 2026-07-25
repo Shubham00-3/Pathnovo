@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-function formatApiError(detail: unknown, fallback: string): string {
+export function formatApiError(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail;
   if (detail && typeof detail === "object") {
     const d = detail as Record<string, unknown>;
@@ -106,6 +106,7 @@ export type RunSummary = {
   warnings?: string[];
   paths?: Record<string, string>;
   renders?: string[];
+  markup_previews?: string[];
 };
 
 export type ChatAnswer = {

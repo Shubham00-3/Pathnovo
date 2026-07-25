@@ -57,8 +57,8 @@ class LocalRegistryResolver:
                 f"Document file missing for {pid}: {local}",
                 details={"pid": pid, "path": str(local)},
             )
-        data = local.read_bytes()
-        if len(data) > int(entry.get("max_bytes", 100 * 1024 * 1024)):
+        byte_size = local.stat().st_size
+        if byte_size > int(entry.get("max_bytes", 100 * 1024 * 1024)):
             raise PidNotFoundError(f"File too large for {pid}")
         return ResolvedDocument(
             pid=pid,
@@ -68,7 +68,7 @@ class LocalRegistryResolver:
             media_type=entry.get("media_type", "application/pdf"),
             source_uri=f"file://{local.as_posix()}",
             local_path=str(local),
-            byte_size=len(data),
+            byte_size=byte_size,
             sha256=_sha256_file(local),
             sheet_count=entry.get("sheet_count"),
             metadata={k: v for k, v in entry.items() if k not in {"path"}},

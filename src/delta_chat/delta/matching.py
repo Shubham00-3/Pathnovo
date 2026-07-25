@@ -15,6 +15,7 @@ from delta_chat.canonical.coordinates import (
     transform_bbox_affine,
 )
 from delta_chat.canonical.models import CanonicalElement
+from delta_chat.errors import ResourceLimitError
 
 COMPAT_KINDS = {
     "text": {"text", "note", "table_cell", "dimension"},
@@ -148,6 +149,19 @@ def match_elements(
             "unmatched_b": [e.element_id for e in elems_b],
             "scores": {},
         }
+
+    max_pair_comparisons = int(mcfg.get("max_pair_comparisons", 2_000_000))
+    pair_comparisons = n * m
+    if pair_comparisons > max_pair_comparisons:
+        raise ResourceLimitError(
+            "Element matching would exceed the configured comparison limit",
+            details={
+                "elements_a": n,
+                "elements_b": m,
+                "pair_comparisons": pair_comparisons,
+                "max_pair_comparisons": max_pair_comparisons,
+            },
+        )
 
     cost = np.ones((n, m), dtype=np.float64)
     feat_map: dict[tuple[int, int], dict[str, float]] = {}

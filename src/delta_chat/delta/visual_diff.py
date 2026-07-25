@@ -7,8 +7,25 @@ from typing import Any
 
 import cv2
 import numpy as np
+from PIL import Image
 
 from delta_chat.canonical.grouping import estimate_grid
+from delta_chat.errors import ResourceLimitError
+
+
+def _load_gray_bounded(path: str | Path, *, max_pixels: int) -> np.ndarray | None:
+    try:
+        with Image.open(path) as header:
+            width, height = header.size
+    except Exception:  # noqa: BLE001
+        return None
+    pixels = int(width) * int(height)
+    if pixels > max_pixels:
+        raise ResourceLimitError(
+            "Rendered page exceeds the visual-diff pixel limit",
+            details={"pixels": pixels, "max_image_pixels": max_pixels},
+        )
+    return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
 
 
 def residual_geometry_changes(
@@ -30,21 +47,21 @@ def residual_geometry_changes(
     border = float(vcfg.get("suppress_border_ratio", 0.05))
     # Policy cap: emit up to max_emit high-area components; remainder counted suppressed
     max_emit = int(vcfg.get("max_emit", 6))
+    max_pixels = int(vcfg.get("max_image_pixels", config.get("max_render_pixels", 20_000_000)))
 
-    ga = cv2.imread(str(render_a), cv2.IMREAD_GRAYSCALE)
-    gb = cv2.imread(str(render_b), cv2.IMREAD_GRAYSCALE)
+    ga = _load_gray_bounded(render_a, max_pixels=max_pixels)
+    gb = _load_gray_bounded(render_b, max_pixels=max_pixels)
     if ga is None or gb is None:
         return []
     if ga.shape != gb.shape:
         ga = cv2.resize(ga, (gb.shape[1], gb.shape[0]))
     M = np.array(pixel_matrix, dtype=np.float32)
     warped = cv2.warpAffine(ga, M, (gb.shape[1], gb.shape[0]), flags=cv2.INTER_LINEAR)
-    warped = cv2.normalize(warped, None, 0, 255, cv2.NORM_MINMAX)
-    gb_n = cv2.normalize(gb, None, 0, 255, cv2.NORM_MINMAX)
 
-    # Directional residuals: B-only (added) vs A-only after warp (removed)
-    diff_add = cv2.subtract(gb_n, warped)
-    diff_rem = cv2.subtract(warped, gb_n)
+    # Drawings are black ink on white paper. Added black ink means A is brighter
+    # than B; removed black ink means B is brighter than registered A.
+    diff_add = cv2.subtract(warped, gb)
+    diff_rem = cv2.subtract(gb, warped)
 
     def components(diff: np.ndarray, change_type: str) -> list[dict[str, Any]]:
         _, bw = cv2.threshold(diff, thr, 255, cv2.THRESH_BINARY)

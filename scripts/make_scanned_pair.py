@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import cv2
 import fitz
@@ -19,7 +20,7 @@ def _rasterize_degrade(pdf_path: Path, out_pdf: Path, seed: int, skew: float = 0
     for i in range(doc.page_count):
         page = doc[i]
         pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
+        img: Any = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
         if pix.n == 4:
             img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
         else:

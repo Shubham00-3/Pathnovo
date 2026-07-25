@@ -10,6 +10,7 @@ from rich.table import Table
 
 from delta_chat import __version__
 from delta_chat.config import load_config, project_root
+from delta_chat.observability.context import InvalidRequestIdError, validate_request_id
 from delta_chat.pipeline import chat_on_run, run_pair
 
 app = typer.Typer(help="Document delta engine with grounded chat", no_args_is_help=True)
@@ -70,7 +71,16 @@ def chat_cmd(
     from delta_chat.retrieval.records import RetrievalRecord
 
     root = project_root()
-    run_dir = root / "artifacts" / "runs" / run_id
+    try:
+        safe_run_id = validate_request_id(run_id)
+    except InvalidRequestIdError as exc:
+        raise typer.BadParameter(exc.message) from exc
+    runs_root = (root / "artifacts" / "runs").resolve()
+    run_dir = (runs_root / safe_run_id).resolve()
+    try:
+        run_dir.relative_to(runs_root)
+    except ValueError as exc:
+        raise typer.BadParameter("Run ID resolves outside artifacts/runs") from exc
     if not run_dir.exists():
         raise typer.BadParameter(f"Run not found: {run_dir}")
     delta = DeltaReport.model_validate_json((run_dir / "delta.json").read_text(encoding="utf-8"))
@@ -85,7 +95,10 @@ def chat_cmd(
     cfg = load_config()
     from delta_chat.observability.llm_telemetry import LLMTelemetry
 
-    telemetry = LLMTelemetry(run_dir / "llm_calls.jsonl", capture_content=True)
+    telemetry = LLMTelemetry(
+        run_dir / "llm_calls.jsonl",
+        capture_content=bool(cfg.get("llm", {}).get("capture_content", False)),
+    )
     payload = {
         "report": delta,
         "records": records,
@@ -112,9 +125,11 @@ def eval_cmd(
 @app.command("samples")
 def samples_cmd(seed: int = typer.Option(42, "--seed")) -> None:
     from scripts.make_scanned_pair import main as make_scan
+    from scripts.make_secondary_pid_pair import main as make_secondary
     from scripts.make_synthetic_pid_pair import main as make_syn
 
     make_syn(seed=seed)
+    make_secondary(seed=seed + 42)
     make_scan(seed=seed)
     console.print("[green]Samples generated.[/green]")
 

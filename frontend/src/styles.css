@@ -275,6 +275,38 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+.card .value.small {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.summary-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mini-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--mut);
+  background: #101620;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mini-pill.pass {
+  border-color: rgba(47, 191, 113, 0.45);
+  color: #9ce6bd;
+}
+
+.mini-pill.fail {
+  border-color: rgba(239, 93, 93, 0.45);
+  color: #ffb0b0;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -292,6 +324,23 @@ textarea {
   padding: 6px 10px;
   font-size: 13px;
   color: var(--mut);
+}
+
+.search-field {
+  max-width: 420px;
+  margin: 14px 0 12px;
+}
+
+.artifact-links {
+  margin-bottom: 12px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.pagination {
+  justify-content: flex-end;
 }
 
 table {
@@ -378,6 +427,7 @@ tbody tr:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
+  margin-top: 16px;
 }
 
 .gallery figure {
@@ -420,6 +470,12 @@ tbody tr:hover {
 
 .bubble.a {
   border-left: 3px solid var(--ok);
+  margin-top: 8px;
+}
+
+.bubble-label {
+  margin-bottom: 4px;
+  font-size: 12px;
 }
 
 .cite {
@@ -435,6 +491,24 @@ tbody tr:hover {
   font-family: var(--mono);
   font-size: 12px;
   color: #a9c7ff;
+}
+
+.cite > div {
+  margin-top: 6px;
+}
+
+.evidence-link {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a9c7ff;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.scorecard-details {
+  margin-top: 18px;
 }
 
 .spinner {

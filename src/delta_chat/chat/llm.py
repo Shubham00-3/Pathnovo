@@ -30,17 +30,62 @@ class ExtractiveLLMClient:
         start = time.time()
         # evidence blocks marked with [source_id]
         blocks = re.findall(r"\[(D:[^\]]+|A:[^\]]+|B:[^\]]+)\]\s*(.+?)(?=\n\[|\Z)", prompt, re.S)
-        citations = []
-        snippets = []
-        for sid, text in blocks[:6]:
-            citations.append(sid.strip())
-            snippets.append(text.strip().splitlines()[0][:240])
         qmatch = re.search(r"Question:\s*(.+)", prompt)
         question = qmatch.group(1).strip() if qmatch else ""
         ql = question.lower()
+        stop = {
+            "what",
+            "which",
+            "where",
+            "when",
+            "near",
+            "about",
+            "value",
+            "table",
+            "revision",
+            "between",
+            "changed",
+            "change",
+            "from",
+            "with",
+            "that",
+            "this",
+            "only",
+            "were",
+            "was",
+            "the",
+            "and",
+            "did",
+        }
+        q_tokens = {token for token in re.findall(r"[a-z0-9\-]{2,}", ql) if token not in stop}
+        q_numbers = set(re.findall(r"\d+(?:[.,]\d+)?", ql))
+        asks_number = any(word in ql for word in ("value", "duty", "setpoint", "how many"))
+        asks_change = any(word in ql for word in ("change", "changed", "added", "removed", "moved"))
+        asks_rev_b = any(word in ql for word in ("revision b", "rev b", "current", "after", "new"))
+
+        ranked: list[tuple[float, str, str]] = []
+        for position, (sid_raw, raw_text) in enumerate(blocks[:12]):
+            sid = sid_raw.strip()
+            snippet = raw_text.strip().splitlines()[0][:240]
+            low = snippet.lower()
+            tokens = set(re.findall(r"[a-z0-9\-]{2,}", low))
+            score = 3.0 * len(q_tokens & tokens)
+            score += 2.0 * sum(1 for token in q_tokens if token in low)
+            score += 6.0 * sum(1 for number in q_numbers if number in low)
+            if asks_number and re.search(r"\d", snippet):
+                score += 2.0
+            if asks_change and sid.startswith("D:"):
+                score += 1.5
+            if asks_rev_b and sid.startswith("B:"):
+                score += 2.5
+            score -= position * 0.01
+            ranked.append((score, sid, snippet))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        citations = [sid for _score, sid, _snippet in ranked]
+        snippets = [snippet for _score, _sid, snippet in ranked]
 
         if not snippets:
-            result = {
+            result: dict[str, Any] = {
                 "answer": (
                     "I could not find enough evidence in the provided PIDs or delta report to answer that."
                 ),
@@ -67,13 +112,14 @@ class ExtractiveLLMClient:
         else:
             result = {
                 "answer": snippets[0],
-                "citations": citations[:3],
+                "citations": citations[:1],
                 "confidence": "medium",
                 "unsupported": False,
             }
 
         latency = (time.time() - start) * 1000
         if self.telemetry:
+            answer_text = str(result["answer"])
             self.telemetry.record(
                 provider=self.provider,
                 model="extractive",
@@ -81,8 +127,8 @@ class ExtractiveLLMClient:
                 prompt=prompt[:2000],
                 response=json.dumps(result),
                 prompt_tokens=len(prompt.split()),
-                completion_tokens=len(result["answer"].split()),
-                total_tokens=len(prompt.split()) + len(result["answer"].split()),
+                completion_tokens=len(answer_text.split()),
+                total_tokens=len(prompt.split()) + len(answer_text.split()),
                 estimated_cost=None,
                 cost_status="unavailable",
                 cost_reason="extractive_provider_has_no_token_pricing",

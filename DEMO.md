@@ -1,8 +1,8 @@
-# DEMO.md — React walkthrough (≤4 minutes)
+# DEMO.md — walkthrough (≤4 minutes)
 
 ## Start (pick one)
 
-**Docker (preferred single command):**
+**Docker (single command):**
 
 ```bash
 docker compose up --build
@@ -11,28 +11,44 @@ docker compose up --build
 
 **Local API + built React:**
 
-```powershell
-$env:PYTHONPATH = "src;."
-cd frontend; npm run build; cd ..
-python -m uvicorn delta_chat.api:app --host 127.0.0.1 --port 8000
+```bash
+make demo
 # open http://127.0.0.1:8000
 ```
 
+No system binaries needed — OCR and CAD both install via pip.
+
 ## Script
 
-1. **Pair setup** — `PID-SYN-A` / `PID-SYN-B`, mode `warn` → **Run comparison**.
-2. **Delta** — show controlled changes (HH 245→250, duty, NOTE 12, removed line tag, moved PT, geometry branch). Open `delta.json` / `report.md`.
-3. **Markup** — download `markup.pdf`; view page renders.
-4. **Chat**
-   - `What changed near 26-PIT-9062?` → setpoint 250 + citations
-   - `Did the motor vendor change?` → unsupported refusal (no vendor evidence)
-   - Expand citation IDs (`D:…` / `A:…` / `B:…`)
-5. **Observability** — after chat, refresh: `trace.json` includes `retrieval.query`, `llm.answer` / deterministic answer, `citation.validate`, `answer`; `metrics.json` shows cumulative chat/LLM counts.
-6. **Evaluation** — `python -m eval.run`; open Evaluation tab scorecard (native F1 numeric; scanned numeric only when Tesseract present).
-7. **Mismatch** — `PID-LIFT` / `PID-EXPORT` warn mode → compatibility warning; strict mode → typed error.
-8. **Close** — DWG is a real seam, not end-to-end without a converter.
+1. **Capability check** — `curl localhost:8000/api/health`. Shows `native_pdf`, `scanned_pdf`, and `cad_dxf` all true, plus which OCR backend is live. `cad_dwg` is false without a converter, and says so up front rather than at request time.
+
+2. **Native pair** — `PID-SYN-A` / `PID-SYN-B`, mode `warn` → **Run comparison**. Six controlled changes: HH 245→250, duty 12000→12500, added NOTE 12, removed line tag, moved `26-PT-9070`, geometry branch. Open `delta.json` and `report.md`; note every change carries a type, a page + grid region, and a confidence band.
+
+3. **Third format** — `PID-CAD-A` / `PID-CAD-B`. Same pipeline, DXF input. Six changes found, zero false positives: exact vector coordinates mean no extraction noise, which is the cleanest demonstration that the canonical seam actually decouples format from delta.
+
+4. **Markup** — download `markup.pdf`. For CAD there is no source PDF, so the overlay is drawn on the adapter's page render; `canvas_basis` in the trace records which was used.
+
+5. **Chat** (grounded)
+   - `What changed near 26-PIT-9080?` → HH 180→195 with citations. This exercises the spatial re-rank: the setpoint's own text never mentions the tag.
+   - `What is the hydrotest pressure for the discharge spool?` → refusal, because nothing in either revision or the delta supports an answer.
+   - Expand citation IDs (`D:…` / `A:…` / `B:…`) — each resolves to a retrievable source.
+
+6. **Observability** — refresh after chat. `trace.json` spans ingest → delta → retrieval → LLM → answer with per-stage timings, chat spans correlated to the parent run; `metrics.json` has cumulative token counts; `llm_calls.jsonl` has per-call telemetry.
+
+7. **Evaluation** — `make eval`. Scorecard prints delta P/R/F1 per format, retrieval recall@5, chat and citation metrics, gate results, the **failure table**, and the **cost/latency budget** table.
+
+8. **Regression detection** — `make eval-compare` against the committed baseline. To see it work:
+
+   ```bash
+   python -c "import json,pathlib; p=pathlib.Path('artifacts/eval/latest.json'); d=json.loads(p.read_text()); d['native_delta_f1']=0.55; pathlib.Path('artifacts/eval/_demo.json').write_text(json.dumps(d))"
+   python -m eval.compare --current artifacts/eval/_demo.json   # exits 1, names the metric
+   ```
+
+9. **Mismatch** — `PID-LIFT` / `PID-EXPORT` in warn mode → compatibility warning; strict mode → typed error. Different documents, not revisions.
+
+10. **Close** — the honest gaps: scanned precision is 0.50 from visual-residual noise, and DWG needs an external converter. Both are in the README failure table.
 
 ## Notes
 
-- Default extractive provider is a deterministic baseline, not a cloud LLM evaluation.
-- Lift/export are different documents for mismatch testing only.
+- The default extractive provider is a deterministic baseline, not a cloud-LLM evaluation. Cost reports as `unavailable`, never `0.00`.
+- Lift/export are different documents, used only for mismatch testing.

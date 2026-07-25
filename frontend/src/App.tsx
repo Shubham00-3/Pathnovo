@@ -8,11 +8,47 @@ import {
 } from "./api";
 
 type Tab = "setup" | "delta" | "markup" | "chat" | "obs" | "eval";
+type ChatTurn = { question: string; answer: ChatAnswer };
+type EvalData = {
+  available: boolean;
+  run_id?: string;
+  scorecard?: { summary?: Record<string, unknown> };
+  scorecard_md?: string;
+};
 
 const CHANGE_TYPES = ["added", "removed", "modified", "moved", "moved_modified"] as const;
 const BANDS = ["high", "medium", "low"] as const;
+const PAGE_SIZE = 25;
+const TABS: Array<[Tab, string]> = [
+  ["setup", "Pair setup"],
+  ["delta", "Delta"],
+  ["markup", "Markup"],
+  ["chat", "Chat"],
+  ["obs", "Observability"],
+  ["eval", "Evaluation"],
+];
 
-type ChatTurn = { question: string; answer: ChatAnswer };
+function entries(value: unknown): Array<[string, string]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+    key,
+    String(item),
+  ]);
+}
+
+function Pills({ value }: { value: unknown }) {
+  const items = entries(value);
+  return (
+    <div className="summary-pills">
+      {items.length === 0 && <span className="muted">None</span>}
+      {items.map(([label, count]) => (
+        <span className="mini-pill" key={label}>
+          {label}: {count}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("setup");
@@ -26,18 +62,15 @@ export default function App() {
   const [run, setRun] = useState<RunSummary | null>(null);
   const [types, setTypes] = useState<string[]>([...CHANGE_TYPES]);
   const [bands, setBands] = useState<string[]>([...BANDS]);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [question, setQuestion] = useState("What changed near 26-PIT-9062?");
   const [chatLog, setChatLog] = useState<ChatTurn[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
-  const [trace, setTrace] = useState<string>("");
-  const [metrics, setMetrics] = useState<string>("");
-  const [events, setEvents] = useState<string>("");
-  const [evalData, setEvalData] = useState<{
-    available: boolean;
-    run_id?: string;
-    scorecard?: { summary?: Record<string, unknown> };
-    scorecard_md?: string;
-  } | null>(null);
+  const [trace, setTrace] = useState("");
+  const [metrics, setMetrics] = useState("");
+  const [events, setEvents] = useState("");
+  const [evalData, setEvalData] = useState<EvalData | null>(null);
   const [apiOk, setApiOk] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -47,56 +80,58 @@ export default function App() {
       .catch(() => setApiOk(false));
     api
       .listPids()
-      .then((r) => {
-        setPids(r.pids);
-        const ids = r.pids.map((p) => p.pid);
-        if (ids.includes("PID-SYN-A")) setPidA("PID-SYN-A");
-        else if (ids[0]) setPidA(ids[0]);
-        if (ids.includes("PID-SYN-B")) setPidB("PID-SYN-B");
-        else if (ids[1]) setPidB(ids[1]);
-        else if (ids[0]) setPidB(ids[0]);
+      .then(({ pids: available }) => {
+        setPids(available);
+        const ids = available.map((pid) => pid.pid);
+        setPidA(ids.includes("PID-SYN-A") ? "PID-SYN-A" : ids[0] || "");
+        setPidB(ids.includes("PID-SYN-B") ? "PID-SYN-B" : ids[1] || ids[0] || "");
       })
-      .catch((e) => setError(String(e.message || e)));
+      .catch((reason: unknown) =>
+        setError(reason instanceof Error ? reason.message : String(reason)),
+      );
   }, []);
 
   const loadObservability = useCallback(async (runId: string) => {
-    const fetchText = async (rel: string) => {
+    const fetchText = async (relative: string) => {
       try {
-        const res = await fetch(api.runFile(runId, rel));
-        if (!res.ok) return `(missing ${rel})`;
-        return await res.text();
-      } catch (e) {
-        return String(e);
+        const response = await fetch(api.runFile(runId, relative));
+        return response.ok ? await response.text() : `(missing ${relative})`;
+      } catch (reason) {
+        return String(reason);
       }
     };
-    const [t, m, e] = await Promise.all([
+    const [traceText, metricsText, eventsText] = await Promise.all([
       fetchText("trace.json"),
       fetchText("metrics.json"),
       fetchText("events.jsonl"),
     ]);
-    setTrace(t);
-    setMetrics(m);
-    setEvents(e.slice(-6000));
+    setTrace(traceText);
+    setMetrics(metricsText);
+    setEvents(eventsText.slice(-6000));
   }, []);
 
   const runComparison = async () => {
     setLoading(true);
     setError(null);
     setOkMsg(null);
+    setRun(null);
     setChatLog([]);
+    setTrace("");
+    setMetrics("");
+    setEvents("");
+    setPage(1);
     try {
-      const result = await api.runPair({
+      const completed = await api.runPair({
         pid_a: pidA,
         pid_b: pidB,
         mismatch_mode: mode,
       });
-      const full = await api.getRun(result.request_id);
-      setRun(full);
-      setOkMsg(`Comparison complete · request_id=${full.request_id}`);
+      setRun(completed);
+      setOkMsg(`Comparison complete · request_id=${completed.request_id}`);
       setTab("delta");
-      void loadObservability(full.request_id);
-    } catch (e) {
-      setError(String((e as Error).message || e));
+      void loadObservability(completed.request_id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setLoading(false);
     }
@@ -107,42 +142,81 @@ export default function App() {
     setChatLoading(true);
     setError(null);
     try {
-      const res = await api.chat(run.request_id, question.trim());
-      setChatLog((prev) => [...prev, { question: res.question, answer: res.answer }]);
-    } catch (e) {
-      setError(String((e as Error).message || e));
+      const response = await api.chat(run.request_id, question.trim());
+      setChatLog((previous) => [
+        ...previous,
+        { question: response.question, answer: response.answer },
+      ]);
+      void loadObservability(run.request_id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setChatLoading(false);
     }
   };
 
-  const loadEval = async () => {
+  const loadEval = useCallback(async () => {
     try {
-      const data = await api.latestEval();
-      setEvalData(data);
-    } catch (e) {
-      setError(String((e as Error).message || e));
+      setEvalData(await api.latestEval());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }, []);
+
+  const changes: DeltaChange[] = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (run?.delta?.changes || []).filter((change) => {
+      if (!types.includes(change.change_type) || !bands.includes(change.confidence_band)) {
+        return false;
+      }
+      if (!needle) return true;
+      return [
+        change.delta_item_id,
+        change.change_type,
+        change.entity_type,
+        change.deterministic_description,
+        change.before,
+        change.after,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [run, types, bands, search]);
+
+  const pageCount = Math.max(1, Math.ceil(changes.length / PAGE_SIZE));
+  const pagedChanges = changes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const summary = run?.delta?.summary || run?.summary || {};
+  const compatibility = run?.delta?.pair_compatibility || run?.pair_compatibility || {};
+  const warnings = run?.delta?.warnings || run?.warnings || [];
+  const evalSummary = (evalData?.scorecard?.summary || {}) as Record<string, unknown>;
+  const evalGates =
+    evalSummary.gates && typeof evalSummary.gates === "object"
+      ? (evalSummary.gates as Record<string, unknown>)
+      : {};
+
+  const toggle = (list: string[], value: string, setter: (items: string[]) => void) => {
+    setPage(1);
+    setter(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+  };
+
+  const showTab = (nextTab: Tab) => {
+    setTab(nextTab);
+    if (nextTab === "eval") void loadEval();
+    if (nextTab === "obs" && run?.request_id) {
+      void loadObservability(run.request_id);
     }
   };
 
-  useEffect(() => {
-    if (tab === "eval") void loadEval();
-    if (tab === "obs" && run?.request_id) void loadObservability(run.request_id);
-  }, [tab, run?.request_id, loadObservability]);
-
-  const changes: DeltaChange[] = useMemo(() => {
-    const all = run?.delta?.changes || [];
-    return all.filter(
-      (c) => types.includes(c.change_type) && bands.includes(c.confidence_band)
-    );
-  }, [run, types, bands]);
-
-  const summary = run?.delta?.summary || run?.summary || {};
-  const compat = run?.delta?.pair_compatibility || run?.pair_compatibility || {};
-  const warnings = run?.delta?.warnings || run?.warnings || [];
-
-  const toggle = (list: string[], value: string, setter: (v: string[]) => void) => {
-    setter(list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
+  const showCitation = (sourceId: string) => {
+    if (sourceId.startsWith("D:")) {
+      setSearch(sourceId.slice(2));
+      setPage(1);
+      showTab("delta");
+    } else {
+      showTab("markup");
+    }
   };
 
   return (
@@ -153,80 +227,68 @@ export default function App() {
           Document Delta & <span>Grounded Chat</span>
         </h1>
         <p className="sub">
-          React frontend over a deterministic, coordinate-aware delta engine. Compare two PID
-          revisions, inspect structured changes, markup, traces, and ask cited questions.
+          Compare two P&ID revisions, inspect structured and visual changes, follow the
+          processing trace, and ask questions backed by retrieved evidence.
         </p>
         <div className="meta">
-          <div className="chip">
-            UI · <b>React + Vite</b>
-          </div>
-          <div className="chip">
-            API · <b>FastAPI</b>
-          </div>
+          <div className="chip">UI · <b>React + Vite</b></div>
+          <div className="chip">API · <b>FastAPI</b></div>
           <div className="chip">
             Backend · <b>{apiOk === null ? "…" : apiOk ? "connected" : "offline"}</b>
           </div>
-          {run?.request_id && (
-            <div className="chip">
-              Run · <b className="mono">{run.request_id}</b>
-            </div>
-          )}
+          {run && <div className="chip">Run · <b className="mono">{run.request_id}</b></div>}
         </div>
       </header>
 
-      <nav className="tabs">
-        {(
-          [
-            ["setup", "Pair setup"],
-            ["delta", "Delta"],
-            ["markup", "Markup"],
-            ["chat", "Chat"],
-            ["obs", "Observability"],
-            ["eval", "Evaluation"],
-          ] as const
-        ).map(([id, label]) => (
+      <nav className="tabs" role="tablist" aria-label="Submission sections">
+        {TABS.map(([id, label]) => (
           <button
             key={id}
             className={`tab ${tab === id ? "active" : ""}`}
-            onClick={() => setTab(id)}
             type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`panel-${id}`}
+            onClick={() => showTab(id)}
           >
             {label}
           </button>
         ))}
       </nav>
 
-      {error && <div className="alert error">{error}</div>}
-      {okMsg && <div className="alert ok">{okMsg}</div>}
+      {error && <div className="alert error" role="alert">{error}</div>}
+      {okMsg && <div className="alert ok" role="status" aria-live="polite">{okMsg}</div>}
 
       {tab === "setup" && (
-        <section className="panel">
+        <section className="panel" id="panel-setup" role="tabpanel">
           <div className="grid2">
             <div className="field">
-              <label>PID A (base)</label>
-              <select value={pidA} onChange={(e) => setPidA(e.target.value)}>
-                {pids.map((p) => (
-                  <option key={p.pid} value={p.pid}>
-                    {p.pid}
-                    {p.revision_label ? ` · rev ${p.revision_label}` : ""}
+              <label htmlFor="pid-a">PID A (base)</label>
+              <select id="pid-a" value={pidA} onChange={(event) => setPidA(event.target.value)}>
+                {pids.map((pid) => (
+                  <option key={pid.pid} value={pid.pid}>
+                    {pid.pid}{pid.revision_label ? ` · rev ${pid.revision_label}` : ""}
                   </option>
                 ))}
               </select>
             </div>
             <div className="field">
-              <label>PID B (revised)</label>
-              <select value={pidB} onChange={(e) => setPidB(e.target.value)}>
-                {pids.map((p) => (
-                  <option key={p.pid} value={p.pid}>
-                    {p.pid}
-                    {p.revision_label ? ` · rev ${p.revision_label}` : ""}
+              <label htmlFor="pid-b">PID B (revised)</label>
+              <select id="pid-b" value={pidB} onChange={(event) => setPidB(event.target.value)}>
+                {pids.map((pid) => (
+                  <option key={pid.pid} value={pid.pid}>
+                    {pid.pid}{pid.revision_label ? ` · rev ${pid.revision_label}` : ""}
                   </option>
                 ))}
               </select>
             </div>
             <div className="field">
-              <label>Mismatch mode</label>
-              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+              <label htmlFor="mismatch-mode">Mismatch mode</label>
+              <select
+                id="mismatch-mode"
+                value={mode}
+                onChange={(event) => setMode(event.target.value)}
+              >
                 <option value="warn">warn</option>
                 <option value="strict">strict</option>
                 <option value="force">force</option>
@@ -234,164 +296,89 @@ export default function App() {
             </div>
           </div>
           <div className="row">
-            <button className="btn primary" disabled={loading || !apiOk} onClick={runComparison}>
-              {loading ? (
-                <>
-                  <span className="spinner" /> Running pipeline…
-                </>
-              ) : (
-                "Run comparison"
-              )}
+            <button
+              className="btn primary"
+              type="button"
+              disabled={loading || !apiOk || !pidA || !pidB}
+              onClick={() => void runComparison()}
+            >
+              {loading ? <><span className="spinner" aria-hidden="true" />Running pipeline…</> : "Run comparison"}
             </button>
             <span className="muted">
-              Try <span className="mono">PID-SYN-A / PID-SYN-B</span> or{" "}
-              <span className="mono">PID-LIFT / PID-EXPORT</span> (mismatch).
+              Start with <span className="mono">PID-SYN-A / PID-SYN-B</span>.
             </span>
           </div>
           {run && (
-            <div className="cards" style={{ marginTop: 16 }}>
-              <div className="card">
-                <div className="label">Changes</div>
-                <div className="value">{String((summary as { total_changes?: number }).total_changes ?? "—")}</div>
-              </div>
-              <div className="card">
-                <div className="label">Compatible</div>
-                <div className="value" style={{ fontSize: 18 }}>
-                  {String((compat as { compatible?: boolean }).compatible ?? "—")}
-                </div>
-              </div>
-              <div className="card">
-                <div className="label">Score</div>
-                <div className="value">{String((compat as { score?: number }).score ?? "—")}</div>
-              </div>
-              <div className="card">
-                <div className="label">Request</div>
-                <div className="value mono" style={{ fontSize: 14 }}>
-                  {run.request_id}
-                </div>
-              </div>
+            <div className="cards">
+              <div className="card"><div className="label">Changes</div><div className="value">{String(summary.total_changes ?? "—")}</div></div>
+              <div className="card"><div className="label">Compatible</div><div className="value small">{String(compatibility.compatible ?? "—")}</div></div>
+              <div className="card"><div className="label">Score</div><div className="value">{String(compatibility.score ?? "—")}</div></div>
+              <div className="card"><div className="label">Request</div><div className="value small mono">{run.request_id}</div></div>
             </div>
           )}
         </section>
       )}
 
       {tab === "delta" && (
-        <section className="panel">
-          {!run ? (
-            <p className="muted">Run a comparison first.</p>
-          ) : (
+        <section className="panel" id="panel-delta" role="tabpanel">
+          {!run ? <p className="muted">Run a comparison first.</p> : (
             <>
-              {warnings.length > 0 && (
-                <div className="alert warn">{warnings.join("\n")}</div>
-              )}
+              {warnings.length > 0 && <div className="alert warn">{warnings.join("\n")}</div>}
               <div className="cards">
-                <div className="card">
-                  <div className="label">Total</div>
-                  <div className="value">
-                    {String((summary as { total_changes?: number }).total_changes ?? 0)}
-                  </div>
-                </div>
-                <div className="card">
-                  <div className="label">By type</div>
-                  <div className="value mono" style={{ fontSize: 12, fontWeight: 500 }}>
-                    {JSON.stringify((summary as { by_change_type?: object }).by_change_type || {})}
-                  </div>
-                </div>
-                <div className="card">
-                  <div className="label">Confidence</div>
-                  <div className="value mono" style={{ fontSize: 12, fontWeight: 500 }}>
-                    {JSON.stringify(
-                      (summary as { by_confidence_band?: object }).by_confidence_band || {}
-                    )}
-                  </div>
-                </div>
-                <div className="card">
-                  <div className="label">Cross-doc</div>
-                  <div className="value" style={{ fontSize: 18 }}>
-                    {String((summary as { cross_document?: boolean }).cross_document ?? false)}
-                  </div>
-                </div>
+                <div className="card"><div className="label">Total</div><div className="value">{String(summary.total_changes ?? 0)}</div></div>
+                <div className="card"><div className="label">By type</div><Pills value={summary.by_change_type} /></div>
+                <div className="card"><div className="label">Confidence</div><Pills value={summary.by_confidence_band} /></div>
+                <div className="card"><div className="label">Cross-document</div><div className="value small">{String(summary.cross_document ?? false)}</div></div>
               </div>
-
-              <div className="filters">
-                {CHANGE_TYPES.map((t) => (
-                  <label key={t}>
-                    <input
-                      type="checkbox"
-                      checked={types.includes(t)}
-                      onChange={() => toggle(types, t, setTypes)}
-                    />
-                    {t}
-                  </label>
+              <div className="filters" aria-label="Delta filters">
+                {CHANGE_TYPES.map((type) => (
+                  <label key={type}><input type="checkbox" checked={types.includes(type)} onChange={() => toggle(types, type, setTypes)} />{type}</label>
                 ))}
-                {BANDS.map((b) => (
-                  <label key={b}>
-                    <input
-                      type="checkbox"
-                      checked={bands.includes(b)}
-                      onChange={() => toggle(bands, b, setBands)}
-                    />
-                    {b}
-                  </label>
+                {BANDS.map((band) => (
+                  <label key={band}><input type="checkbox" checked={bands.includes(band)} onChange={() => toggle(bands, band, setBands)} />{band}</label>
                 ))}
               </div>
-
-              <div className="row" style={{ marginBottom: 12 }}>
-                {run.paths?.report_md && (
-                  <a className="btn" href={run.paths.report_md} target="_blank" rel="noreferrer">
-                    report.md
-                  </a>
-                )}
-                {run.paths?.delta_json && (
-                  <a className="btn" href={run.paths.delta_json} target="_blank" rel="noreferrer">
-                    delta.json
-                  </a>
-                )}
-                {run.paths?.report_html && (
-                  <a className="btn" href={run.paths.report_html} target="_blank" rel="noreferrer">
-                    report.html
-                  </a>
-                )}
+              <div className="field search-field">
+                <label htmlFor="delta-search">Search delta rows</label>
+                <input
+                  id="delta-search"
+                  type="search"
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="ID, tag, value, or description…"
+                />
               </div>
-
-              <div style={{ overflowX: "auto" }}>
+              <div className="row artifact-links">
+                {run.paths?.report_md && <a className="btn" href={run.paths.report_md} target="_blank" rel="noreferrer">report.md</a>}
+                {run.paths?.delta_json && <a className="btn" href={run.paths.delta_json} target="_blank" rel="noreferrer">delta.json</a>}
+                {run.paths?.report_html && <a className="btn" href={run.paths.report_html} target="_blank" rel="noreferrer">report.html</a>}
+              </div>
+              <div className="table-wrap">
                 <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Type</th>
-                      <th>Entity</th>
-                      <th>Band</th>
-                      <th>Description</th>
-                      <th>Before</th>
-                      <th>After</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th>ID</th><th>Type</th><th>Entity</th><th>Band</th><th>Description</th><th>Before</th><th>After</th></tr></thead>
                   <tbody>
-                    {changes.map((c) => (
-                      <tr key={c.delta_item_id}>
-                        <td className="mono">{c.delta_item_id}</td>
-                        <td>
-                          <span className={`badge ${c.change_type}`}>{c.change_type}</span>
-                        </td>
-                        <td>{c.entity_type}</td>
-                        <td>
-                          <span className={`badge ${c.confidence_band}`}>{c.confidence_band}</span>
-                        </td>
-                        <td>{c.deterministic_description}</td>
-                        <td className="mono">{c.before || "—"}</td>
-                        <td className="mono">{c.after || "—"}</td>
+                    {pagedChanges.map((change) => (
+                      <tr key={change.delta_item_id} id={`change-${change.delta_item_id}`}>
+                        <td className="mono">{change.delta_item_id}</td>
+                        <td><span className={`badge ${change.change_type}`}>{change.change_type}</span></td>
+                        <td>{change.entity_type}</td>
+                        <td><span className={`badge ${change.confidence_band}`}>{change.confidence_band}</span></td>
+                        <td>{change.deterministic_description}</td>
+                        <td className="mono">{change.before || "—"}</td>
+                        <td className="mono">{change.after || "—"}</td>
                       </tr>
                     ))}
-                    {changes.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="muted">
-                          No changes match filters.
-                        </td>
-                      </tr>
-                    )}
+                    {changes.length === 0 && <tr><td colSpan={7} className="muted">No changes match the current filters.</td></tr>}
                   </tbody>
                 </table>
+              </div>
+              <div className="row pagination" aria-label="Delta pagination">
+                <button className="btn" type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+                <span className="muted">Page {page} of {pageCount} · {changes.length} matching changes</span>
+                <button className="btn" type="button" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</button>
               </div>
             </>
           )}
@@ -399,25 +386,17 @@ export default function App() {
       )}
 
       {tab === "markup" && (
-        <section className="panel">
-          {!run ? (
-            <p className="muted">Run a comparison first.</p>
-          ) : (
+        <section className="panel" id="panel-markup" role="tabpanel">
+          {!run ? <p className="muted">Run a comparison first.</p> : (
             <>
               <div className="row">
-                {run.paths?.markup_pdf && (
-                  <a className="btn primary" href={run.paths.markup_pdf} target="_blank" rel="noreferrer">
-                    Download markup.pdf
-                  </a>
-                )}
-                <span className="muted">
-                  Green = added · Red = removed · Amber = modified/moved · Gray = low confidence
-                </span>
+                {run.paths?.markup_pdf && <a className="btn primary" href={run.paths.markup_pdf} target="_blank" rel="noreferrer">Download markup.pdf</a>}
+                <span className="muted">Green = added · Red = removed · Amber = modified/moved · Gray = low confidence</span>
               </div>
-              <div className="gallery" style={{ marginTop: 16 }}>
-                {(run.renders || []).map((src) => (
+              <div className="gallery">
+                {(run.markup_previews?.length ? run.markup_previews : run.renders || []).map((src, index) => (
                   <figure key={src}>
-                    <img src={src} alt={src} />
+                    <a href={src} target="_blank" rel="noreferrer"><img src={src} alt={`Annotated markup preview page ${index + 1}`} /></a>
                     <figcaption className="mono">{src.split("/").pop()}</figcaption>
                   </figure>
                 ))}
@@ -428,70 +407,32 @@ export default function App() {
       )}
 
       {tab === "chat" && (
-        <section className="panel">
-          {!run ? (
-            <p className="muted">Run a comparison first.</p>
-          ) : (
+        <section className="panel" id="panel-chat" role="tabpanel">
+          {!run ? <p className="muted">Run a comparison first.</p> : (
             <>
               <div className="field">
-                <label>Question</label>
-                <input
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void ask();
-                  }}
-                  placeholder="What changed near 26-PIT-9062?"
-                />
+                <label htmlFor="chat-question">Question</label>
+                <input id="chat-question" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void ask(); }} placeholder="What changed near 26-PIT-9062?" />
               </div>
               <div className="row">
-                <button className="btn primary" disabled={chatLoading} onClick={ask}>
-                  {chatLoading ? (
-                    <>
-                      <span className="spinner" /> Asking…
-                    </>
-                  ) : (
-                    "Ask"
-                  )}
+                <button className="btn primary" type="button" disabled={chatLoading} onClick={() => void ask()}>
+                  {chatLoading ? <><span className="spinner" aria-hidden="true" />Asking…</> : "Ask"}
                 </button>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => setQuestion("Summarize only high-confidence changes.")}
-                >
-                  High-conf summary
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => setQuestion("Did the motor vendor change?")}
-                >
-                  Unsupported example
-                </button>
+                <button className="btn" type="button" onClick={() => setQuestion("Summarize only high-confidence changes.")}>High-confidence summary</button>
+                <button className="btn" type="button" onClick={() => setQuestion("Did the motor vendor change?")}>Unsupported example</button>
               </div>
-              <div className="chat-log">
-                {chatLog.map((t, i) => (
-                  <div key={i}>
-                    <div className="bubble q">
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-                        Question
-                      </div>
-                      {t.question}
-                    </div>
-                    <div className="bubble a" style={{ marginTop: 8 }}>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-                        Answer · {t.answer.provider || "—"} · {t.answer.confidence}
-                        {t.answer.unsupported ? " · unsupported" : ""}
-                      </div>
-                      <div>{t.answer.answer}</div>
-                      {(t.answer.citations || []).map((c) => (
-                        <details key={c.source_id} className="cite">
-                          <summary>{c.source_id}</summary>
-                          <div className="mono muted" style={{ marginTop: 6 }}>
-                            {c.quote || "(no quote)"}
-                            {c.page != null ? ` · page ${c.page}` : ""}
-                            {c.grid_region ? ` · grid ${c.grid_region}` : ""}
-                          </div>
+              <div className="chat-log" aria-live="polite">
+                {chatLog.map((turn, index) => (
+                  <div key={`${turn.question}-${index}`}>
+                    <div className="bubble q"><div className="muted bubble-label">Question</div>{turn.question}</div>
+                    <div className="bubble a">
+                      <div className="muted bubble-label">Answer · {turn.answer.provider || "—"} · {turn.answer.confidence}{turn.answer.unsupported ? " · unsupported" : ""}</div>
+                      <div>{turn.answer.answer}</div>
+                      {turn.answer.citations.map((citation) => (
+                        <details key={citation.source_id} className="cite">
+                          <summary>{citation.source_id}</summary>
+                          <div className="mono muted">{citation.quote || "(no quote)"}{citation.page != null ? ` · page ${citation.page}` : ""}{citation.grid_region ? ` · grid ${citation.grid_region}` : ""}</div>
+                          <button className="evidence-link" type="button" onClick={() => showCitation(citation.source_id)}>View evidence</button>
                         </details>
                       ))}
                     </div>
@@ -504,80 +445,57 @@ export default function App() {
       )}
 
       {tab === "obs" && (
-        <section className="panel">
-          {!run ? (
-            <p className="muted">Run a comparison first.</p>
-          ) : (
+        <section className="panel" id="panel-obs" role="tabpanel">
+          {!run ? <p className="muted">Run a comparison first.</p> : (
             <>
-              <div className="row" style={{ marginBottom: 12 }}>
-                {run.paths?.trace && (
-                  <a className="btn" href={run.paths.trace} target="_blank" rel="noreferrer">
-                    trace.json
-                  </a>
-                )}
-                {run.paths?.metrics && (
-                  <a className="btn" href={run.paths.metrics} target="_blank" rel="noreferrer">
-                    metrics.json
-                  </a>
-                )}
-                {run.paths?.events && (
-                  <a className="btn" href={run.paths.events} target="_blank" rel="noreferrer">
-                    events.jsonl
-                  </a>
-                )}
-                {run.paths?.llm_calls && (
-                  <a className="btn" href={run.paths.llm_calls} target="_blank" rel="noreferrer">
-                    llm_calls.jsonl
-                  </a>
-                )}
+              <div className="row artifact-links">
+                {run.paths?.trace && <a className="btn" href={run.paths.trace} target="_blank" rel="noreferrer">trace.json</a>}
+                {run.paths?.metrics && <a className="btn" href={run.paths.metrics} target="_blank" rel="noreferrer">metrics.json</a>}
+                {run.paths?.events && <a className="btn" href={run.paths.events} target="_blank" rel="noreferrer">events.jsonl</a>}
+                {run.paths?.llm_calls && <a className="btn" href={run.paths.llm_calls} target="_blank" rel="noreferrer">llm_calls.jsonl</a>}
               </div>
-              <h3>Trace</h3>
-              <pre className="pre">{trace || "—"}</pre>
-              <h3>Metrics</h3>
-              <pre className="pre">{metrics || "—"}</pre>
-              <h3>Events (tail)</h3>
-              <pre className="pre">{events || "—"}</pre>
+              <h3>Trace</h3><pre className="pre">{trace || "—"}</pre>
+              <h3>Metrics</h3><pre className="pre">{metrics || "—"}</pre>
+              <h3>Events (tail)</h3><pre className="pre">{events || "—"}</pre>
             </>
           )}
         </section>
       )}
 
       {tab === "eval" && (
-        <section className="panel">
+        <section className="panel" id="panel-eval" role="tabpanel">
           <div className="row">
-            <button className="btn" onClick={loadEval}>
-              Refresh scorecard
-            </button>
-            <span className="muted">
-              Run <span className="mono">python -m eval.run</span> to regenerate.
-            </span>
+            <button className="btn" type="button" onClick={() => void loadEval()}>Refresh scorecard</button>
+            <span className="muted">Run <span className="mono">python -m eval.run</span> to regenerate.</span>
           </div>
-          {!evalData?.available ? (
-            <p className="muted" style={{ marginTop: 12 }}>
-              No eval artifacts yet.
-            </p>
-          ) : (
+          {!evalData?.available ? <p className="muted">No evaluation artifacts yet.</p> : (
             <>
-              <p className="muted">
-                Latest run: <span className="mono">{evalData.run_id}</span>
-              </p>
-              <pre className="pre">
-                {JSON.stringify(evalData.scorecard?.summary || evalData.scorecard, null, 2)}
-              </pre>
-              {evalData.scorecard_md && (
-                <>
-                  <h3>scorecard.md</h3>
-                  <pre className="pre">{evalData.scorecard_md}</pre>
-                </>
+              <p className="muted">Latest run: <span className="mono">{evalData.run_id}</span></p>
+              <div className="cards">
+                <div className="card"><div className="label">All gates</div><div className="value small">{evalSummary.all_gates_passed === true ? "PASS" : "FAIL"}</div></div>
+                <div className="card"><div className="label">Native F1</div><div className="value">{String(evalSummary.native_delta_f1 ?? "—")}</div></div>
+                <div className="card"><div className="label">Scanned F1</div><div className="value">{String(evalSummary.scanned_delta_f1 ?? "—")}</div></div>
+                <div className="card"><div className="label">Chat facts</div><div className="value">{String(evalSummary.chat_fact_accuracy ?? "—")}</div></div>
+              </div>
+              <div className="summary-pills" aria-label="Evaluation gates">
+                {Object.entries(evalGates).map(([name, passed]) => (
+                  <span className={`mini-pill ${passed === true ? "pass" : "fail"}`} key={name}>{passed === true ? "PASS" : "FAIL"} · {name}</span>
+                ))}
+              </div>
+              {Array.isArray(evalSummary.required_failures) && evalSummary.required_failures.length > 0 && (
+                <div className="alert error" role="alert">Required failures: {evalSummary.required_failures.join("; ")}</div>
               )}
+              <details className="scorecard-details">
+                <summary>Raw scorecard details</summary>
+                <pre className="pre">{JSON.stringify(evalSummary, null, 2)}</pre>
+              </details>
             </>
           )}
         </section>
       )}
 
       <footer className="footer">
-        Business logic lives in the Python pipeline. This React app is a thin client over{" "}
-        <span className="mono">/api/*</span>.
+        Business logic stays in the Python pipeline; this React app uses the local <span className="mono">/api/*</span> contract.
       </footer>
     </div>
   );

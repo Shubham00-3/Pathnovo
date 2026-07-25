@@ -53,7 +53,7 @@ def _cluster_drawings(drawings: list[dict], page_w: float, page_h: float) -> lis
     return clusters[:80]
 
 
-def _span_items_from_dict(page: fitz.Page) -> list[dict]:
+def _span_items_from_dict(page: fitz.Page, *, max_items: int) -> list[dict]:
     """Extract localized text runs using PyMuPDF block/line structure."""
     data = page.get_text("dict") or {}
     items: list[dict] = []
@@ -91,6 +91,11 @@ def _span_items_from_dict(page: fitz.Page) -> list[dict]:
                         "size": current[0].get("size"),
                     }
                 )
+                if len(items) > max_items:
+                    raise CorruptDocumentError(
+                        "Page exceeds the configured native-text element limit",
+                        details={"max_elements_per_page": max_items},
+                    )
                 current = []
 
             for si, span in enumerate(spans):
@@ -146,18 +151,38 @@ class NativePdfAdapter:
         pages: list[CanonicalPage] = []
         warnings: list[str] = []
         try:
+            max_pages = int(config.get("max_pages", 20))
+            if doc.page_count > max_pages:
+                raise CorruptDocumentError(
+                    "Document exceeds the configured page limit",
+                    details={"page_count": doc.page_count, "max_pages": max_pages},
+                )
             for page_index in range(doc.page_count):
                 page = doc[page_index]
                 pw, ph = float(page.rect.width), float(page.rect.height)
                 page_no = page_index + 1
 
                 zoom = dpi / 72.0
+                render_pixels = int(pw * zoom) * int(ph * zoom)
+                max_render_pixels = int(config.get("max_render_pixels", 50_000_000))
+                if render_pixels > max_render_pixels:
+                    raise CorruptDocumentError(
+                        f"Page {page_no} render would exceed the pixel limit",
+                        details={
+                            "pid": resolved.pid,
+                            "render_pixels": render_pixels,
+                            "max_render_pixels": max_render_pixels,
+                        },
+                    )
                 mat = fitz.Matrix(zoom, zoom)
                 pix = page.get_pixmap(matrix=mat, alpha=False)
                 render_path = out_dir / f"{resolved.pid}_p{page_no}.png"
                 pix.save(str(render_path))
 
-                span_items = _span_items_from_dict(page)
+                span_items = _span_items_from_dict(
+                    page,
+                    max_items=int(config.get("max_elements_per_page", 3_000)),
+                )
                 elements = []
                 page_text_parts = []
                 for item in span_items:

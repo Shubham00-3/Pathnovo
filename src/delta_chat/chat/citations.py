@@ -20,6 +20,13 @@ def citation_supports_answer(answer_text: str, evidence_text: str) -> bool:
     if not a or not e:
         # empty answer or evidence: do not claim support for factual answers
         return bool(e) and not a
+    answer_numbers = set(re.findall(r"(?<![a-z])\d+(?:[.,]\d+)?", answer_text.lower()))
+    evidence_numbers = set(re.findall(r"(?<![a-z])\d+(?:[.,]\d+)?", evidence_text.lower()))
+    # A citation cannot support a numeric engineering claim if none of the
+    # claimed values appear in that evidence. One matching value is sufficient
+    # for an item-level citation in a multi-item summary.
+    if answer_numbers and not (answer_numbers & evidence_numbers):
+        return False
     overlap = len(a & e) / max(1, len(a))
     return overlap >= 0.12 or any(
         tok in evidence_text.lower() for tok in list(a)[:8] if len(tok) > 4

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from delta_chat.api import app
@@ -38,3 +40,28 @@ def test_run_pair_no_absolute_paths():
     g = client.get(f"/api/runs/{rid}")
     assert g.status_code == 200
     assert "run_dir" not in g.json()
+
+
+def test_existing_request_id_cannot_mix_or_overwrite_runs():
+    request_id = f"collision-{uuid4().hex[:12]}"
+    body = {
+        "pid_a": "PID-SYN-A",
+        "pid_b": "PID-SYN-B",
+        "mismatch_mode": "warn",
+        "request_id": request_id,
+    }
+    first = client.post("/api/run-pair", json=body)
+    assert first.status_code == 200, first.text
+    second = client.post("/api/run-pair", json=body)
+    assert second.status_code == 400
+    assert "already exists" in second.text
+
+
+def test_chunked_body_limit_is_enforced_without_content_length():
+    chunks = iter([b'{"pid_a":"', b"A" * 1_000_100, b'"}'])
+    response = client.post(
+        "/api/run-pair",
+        content=chunks,
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413

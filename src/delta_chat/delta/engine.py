@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any
+from typing import Any, cast
 
 from delta_chat.canonical.coordinates import transform_bbox_affine
+from delta_chat.canonical.limits import enforce_revision_limits
 from delta_chat.canonical.models import DocumentRevision
 from delta_chat.config import config_hash
 from delta_chat.delta.classify import classify_match, confidence_for_change
@@ -66,6 +67,8 @@ def compute_delta(
     *,
     mismatch_mode: str | None = None,
 ) -> DeltaReport:
+    enforce_revision_limits(doc_a, config)
+    enforce_revision_limits(doc_b, config)
     mode = mismatch_mode or config.get("pair_compatibility", {}).get("mode", "warn")
     compat = assess_compatibility(doc_a, doc_b, config)
     compat = enforce_compatibility(compat, mode)
@@ -120,7 +123,7 @@ def compute_delta(
     for m in page_align.get("matches", []):
         pa = by_page_a[m["page_a"]]
         pb = by_page_b[m["page_b"]]
-        reg = {
+        reg: dict[str, Any] = {
             "method": "none",
             "confidence": 0.0,
             "norm_matrix": None,
@@ -144,7 +147,12 @@ def compute_delta(
         registration_all[str(pb.page_number)] = reg
         # Semantic matching can still use identity spatial coords when registration
         # fails, but visual residual must not run on a fabricated transform.
-        matrix = reg.get("norm_matrix") or [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+        norm_matrix = reg.get("norm_matrix")
+        matrix = (
+            cast(list[list[float]], norm_matrix)
+            if isinstance(norm_matrix, list)
+            else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+        )
         if reg.get("rejected"):
             warnings.append(reg.get("warning") or "registration rejected")
 
@@ -332,18 +340,19 @@ def compute_delta(
             and pb.render_path
             and config.get("visual_diff", {}).get("enabled", True)
         ):
+            pixel_matrix = cast(list[list[float]], reg["pixel_matrix"])
             comps = residual_geometry_changes(
                 pa.render_path,
                 pb.render_path,
-                pixel_matrix=reg["pixel_matrix"],
+                pixel_matrix=pixel_matrix,
                 config=config,
                 pid_b=doc_b.pid,
                 page_number=pb.page_number,
                 existing_boxes=explained_boxes,
             )
-            suppressed += int(reg.get("suppressed_visual") or 0)  # type: ignore[arg-type]
-            for i, c in enumerate(comps):
-                ctype = str(c.get("change_type") or "added")
+            suppressed += sum(int(comp.get("suppressed_peers") or 0) for comp in comps)
+            for i, component in enumerate(comps):
+                ctype = str(component.get("change_type") or "added")
                 if ctype not in {"added", "removed", "modified"}:
                     ctype = "added"
                 conf, band, factors = confidence_for_change(
@@ -358,13 +367,19 @@ def compute_delta(
                 changes.append(
                     DeltaItem(
                         delta_item_id=_item_id(
-                            doc_a.pid, doc_b.pid, ctype, f"geo-{pb.page_number}-{i}-{c['bbox']}"
+                            doc_a.pid,
+                            doc_b.pid,
+                            ctype,
+                            f"geo-{pb.page_number}-{i}-{component['bbox']}",
                         ),
                         change_type=ctype,  # type: ignore[arg-type]
                         entity_type="geometry_region",
                         page_a=pa.page_number,
                         page_b=pb.page_number,
-                        region={"bbox": c["bbox"], "grid_region": c.get("grid_region")},
+                        region={
+                            "bbox": component["bbox"],
+                            "grid_region": component.get("grid_region"),
+                        },
                         before="geometry region" if ctype == "removed" else None,
                         after="geometry region" if ctype != "removed" else None,
                         deterministic_description=_desc(
@@ -373,15 +388,15 @@ def compute_delta(
                             "geometry region" if ctype == "removed" else None,
                             "geometry region" if ctype != "removed" else None,
                             pb.page_number,
-                            c.get("grid_region"),
+                            component.get("grid_region"),
                         ),
                         confidence=round(conf, 4),
                         confidence_band=band,
                         confidence_factors=factors,
                         match_features={
-                            "area": c.get("area"),
+                            "area": component.get("area"),
                             "source": "visual_residual",
-                            "direction": c.get("direction"),
+                            "direction": component.get("direction"),
                         },
                         review_required=True,
                     )
@@ -400,9 +415,9 @@ def compute_delta(
 
     by_type: dict[str, int] = {}
     by_band: dict[str, int] = {}
-    for c in changes:
-        by_type[c.change_type] = by_type.get(c.change_type, 0) + 1
-        by_band[c.confidence_band] = by_band.get(c.confidence_band, 0) + 1
+    for change in changes:
+        by_type[change.change_type] = by_type.get(change.change_type, 0) + 1
+        by_band[change.confidence_band] = by_band.get(change.confidence_band, 0) + 1
 
     delta_id = hashlib.sha1(
         f"{doc_a.pid}|{doc_b.pid}|{config_hash(config)}|{len(changes)}".encode()

@@ -21,8 +21,14 @@ def samples_ready():
     yield
 
 
-def test_native_pair_end_to_end(samples_ready):
-    result = run_pair("PID-SYN-A", "PID-SYN-B", mismatch_mode="warn", request_id="test-native")
+def test_native_pair_end_to_end(samples_ready, tmp_path):
+    result = run_pair(
+        "PID-SYN-A",
+        "PID-SYN-B",
+        mismatch_mode="warn",
+        request_id="test-native",
+        artifacts_root=tmp_path,
+    )
     run_dir = Path(result["run_dir"])
     for name in [
         "canonical_a.json",
@@ -49,7 +55,7 @@ def test_native_pair_end_to_end(samples_ready):
     assert bad["unsupported"] is True
 
 
-def test_mismatch_pair(samples_ready):
+def test_mismatch_pair(samples_ready, tmp_path):
     root = project_root()
     # ensure registry
     from scripts.build_eval_dataset import main as build_reg
@@ -57,6 +63,12 @@ def test_mismatch_pair(samples_ready):
     build_reg()
     if not (root / "data/registry.json").exists():
         pytest.skip("no registry")
-    result = run_pair("PID-LIFT", "PID-EXPORT", mismatch_mode="warn", request_id="test-mismatch")
+    result = run_pair(
+        "PID-LIFT",
+        "PID-EXPORT",
+        mismatch_mode="warn",
+        request_id="test-mismatch",
+        artifacts_root=tmp_path,
+    )
     assert result["delta"]["pair_compatibility"]["compatible"] is False
     assert result["delta"]["warnings"]

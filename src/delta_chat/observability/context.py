@@ -51,7 +51,7 @@ class RunContext:
         request_id: str | None = None,
         *,
         correlation_id: str | None = None,
-        allow_existing: bool = True,
+        allow_existing: bool = False,
     ) -> RunContext:
         rid = validate_request_id(request_id) if request_id else new_request_id()
         runs_root = (artifacts_root / "runs").resolve()
