@@ -83,16 +83,59 @@ cases:
         acceptable_source_prefixes: ["D:"]
 
   - id: native_revision_alt
-    description: Second independent native scenario (same generator family, pair re-run)
-    pid_a: PID-SYN-A
-    pid_b: PID-SYN-B
+    description: Independent export-gas native revision scenario
+    pid_a: PID-SYN2-A
+    pid_b: PID-SYN2-B
     mismatch_mode: warn
     expect_mismatch: false
     required: true
-    ground_truth_path: data/samples/synthetic_native/ground_truth.json
+    ground_truth_path: data/samples/synthetic_secondary/ground_truth.json
     qa:
-      - id: line_removed
-        question: Was the line tag 4"-PG-1002-A1 removed?
-        must_include: ["1002"]
+      - id: export_setpoint
+        question: What changed near 27-PIT-1001?
+        must_include: ["185"]
         require_citation: true
-        acceptable_source_prefixes: ["D:", "A:"]
+        acceptable_source_prefixes: ["D:", "A:", "B:"]
+      - id: export_duty
+        question: What is the duty value in revision B?
+        must_include: ["8500"]
+        require_citation: true
+        acceptable_source_prefixes: ["B:", "D:"]
+
+  # Third format. CAD carries exact vector coordinates, so this case isolates
+  # delta quality from extraction error: any miss here is the matcher's fault,
+  # not OCR's. Contrast with scanned_revision, which shares the same edit set.
+  - id: cad_revision
+    description: Synthetic DXF revision pair ingested through the CAD adapter
+    pid_a: PID-CAD-A
+    pid_b: PID-CAD-B
+    mismatch_mode: warn
+    expect_mismatch: false
+    required: true
+    requires_cad: true
+    ground_truth_path: data/samples/synthetic_cad/ground_truth.json
+    qa:
+      - id: cad_setpoint
+        question: What changed near 26-PIT-9080?
+        must_include: ["195"]
+        require_citation: true
+        acceptable_source_prefixes: ["D:", "A:", "B:"]
+      - id: cad_duty
+        question: What is the duty value in revision B?
+        must_include: ["8600"]
+        require_citation: true
+        acceptable_source_prefixes: ["B:", "D:"]
+      - id: cad_note_added
+        question: Was NOTE 12 added between the revisions?
+        must_include: ["NOTE 12"]
+        require_citation: true
+        acceptable_source_prefixes: ["D:", "B:"]
+      - id: cad_unsupported
+        question: What is the hydrotest pressure for the discharge spool?
+        must_include: []
+        require_citation: false
+        unsupported: true
+    retrieval:
+      - query: 26-PT-9085
+        must_match_text: 26-PT-9085
+        expect_families: [rev_a, rev_b, delta]

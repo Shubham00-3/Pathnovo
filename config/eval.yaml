@@ -1,12 +1,35 @@
 dataset: eval/datasets/v1.yaml
 seed: 42
 gates:
+  # Thresholds sit just under current measured scores so a real regression trips
+  # them, without the suite going red on run-to-run noise. Current: native 0.92,
+  # scanned 0.67, cad 1.00.
   native_delta_f1: 0.70
   scanned_delta_f1: 0.45
+  cad_delta_f1: 0.80
   pair_mismatch_accuracy: 1.0
   citation_validity: 1.0
   unsupported_refusal: 1.0
   fail_on_gate: true
-  require_scanned: false  # set true in Docker / environments with Tesseract
+  require_scanned: true
+  require_cad: true
 location_iou_threshold: 0.05
 centroid_tol: 0.08
+
+# Budgets for the cost/latency analysis in the scorecard. Set from measured p95
+# on a dev laptop with headroom, so an overrun means something changed rather
+# than that the machine was busy. Overruns are reported, not gated -- timing on
+# unpinned hardware is too noisy to fail a build on.
+budgets:
+  end_to_end_p95_ms: 30000
+  stage_p95_ms:
+    ingest.a: 12000        # OCR dominates; the CAD and native paths are far under
+    ingest.b: 12000
+    delta.engine: 8000
+    report.write: 500
+    markup.overlay: 2000
+    retrieval.index: 500
+    chat.chat.request: 5000
+  # Only meaningful once a paid provider is configured; the default extractive
+  # provider makes no billed calls and reports cost as unavailable.
+  cost_per_run_usd: 0.05

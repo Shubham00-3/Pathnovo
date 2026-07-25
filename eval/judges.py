@@ -50,10 +50,6 @@ def judge_chat(answer: dict[str, Any], expected: dict[str, Any]) -> dict[str, An
             or not (answer.get("answer") or "").strip()
         ):
             valid += 1
-        elif quote:
-            # deterministic answers often paraphrase; accept if quote non-empty and id well-formed
-            if str(sid).startswith(("D:", "A:", "B:")):
-                valid += 1
     citation_validity = (
         (valid / len(citations)) if citations else (1.0 if exp_unsup or not need_cite else 0.0)
     )

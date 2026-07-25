@@ -15,6 +15,8 @@ import yaml
 from delta_chat.config import config_hash, load_config, load_yaml, project_root
 from delta_chat.errors import OcrFailure, PairMismatchError
 from delta_chat.pipeline import chat_on_run, run_pair
+from eval.budget import analyze as analyze_budget
+from eval.budget import to_markdown as budget_markdown
 from eval.judges import judge_chat
 from eval.matching import match_predictions_to_gt
 from eval.metrics import micro_f1
@@ -33,14 +35,110 @@ def _git_sha() -> str | None:
         return None
 
 
-def _ocr_available() -> bool:
-    try:
-        import pytesseract
+def _ocr_available(cfg: dict) -> bool:
+    """True when any configured OCR backend can run, not just Tesseract."""
+    from delta_chat.ingest.ocr import any_backend_available
 
-        pytesseract.get_tesseract_version()
-        return True
+    return any_backend_available(cfg)
+
+
+def _ocr_backend_name(cfg: dict) -> str | None:
+    """Which OCR engine the scanned cases actually used, for the scorecard."""
+    from delta_chat.ingest.ocr import available_backends
+
+    for name, availability in available_backends(cfg).items():
+        if availability.available:
+            return name
+    return None
+
+
+def _cad_available() -> bool:
+    """True when the DXF reader is installed (DWG additionally needs a converter)."""
+    try:
+        import ezdxf  # noqa: F401
     except Exception:  # noqa: BLE001
         return False
+    return True
+
+
+def build_failure_table(
+    case_results: list[dict[str, Any]],
+    delta_metrics: list[dict[str, Any]],
+    chat_scores: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Enumerate every way the system underperformed on this run.
+
+    Gate failures alone under-report: a case can clear its threshold while still
+    inventing changes or citing the wrong source. This walks the raw per-case
+    results so the scorecard states what is actually wrong, not just what
+    breached a number we chose.
+    """
+    failures: list[dict[str, Any]] = []
+
+    for case in case_results:
+        status = case.get("status")
+        if status not in {"ok", None}:
+            failures.append(
+                {
+                    "kind": "case_status",
+                    "case_id": case.get("id"),
+                    "detail": status,
+                    "error": (case.get("error") or {}).get("message")
+                    or (case.get("error") or {}).get("code"),
+                }
+            )
+
+    for metric in delta_metrics:
+        case_id = metric.get("case_id")
+        if metric.get("fp"):
+            failures.append(
+                {
+                    "kind": "delta_false_positive",
+                    "case_id": case_id,
+                    "count": metric["fp"],
+                    "detail": f"{metric['fp']} predicted change(s) matched no ground-truth entry",
+                    "precision": metric.get("precision"),
+                }
+            )
+        if metric.get("fn"):
+            failures.append(
+                {
+                    "kind": "delta_missed_change",
+                    "case_id": case_id,
+                    "count": metric["fn"],
+                    "detail": f"{metric['fn']} ground-truth change(s) not detected",
+                    "recall": metric.get("recall"),
+                }
+            )
+
+    for score in chat_scores:
+        label = f"{score.get('case_id')}/{score.get('qa_id')}"
+        if not score.get("fact_ok"):
+            failures.append(
+                {
+                    "kind": "chat_fact_miss",
+                    "case_id": label,
+                    "detail": "answer did not contain the expected fact",
+                }
+            )
+        if float(score.get("citation_validity") or 1.0) < 1.0:
+            failures.append(
+                {
+                    "kind": "citation_invalid",
+                    "case_id": label,
+                    "detail": "answer cited a source id that is not retrievable",
+                }
+            )
+        if "refusal_ok" in score and not score.get("refusal_ok"):
+            failures.append(
+                {
+                    "kind": "refusal_miss",
+                    "case_id": label,
+                    "detail": "expected an unsupported/refusal answer, got a substantive one",
+                }
+            )
+
+    return failures
 
 
 def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
@@ -63,8 +161,11 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     citation_validity_vals: list[float] = []
     refusal_ok_vals: list[float] = []
     required_failures: list[str] = []
-    ocr_ok = _ocr_available()
+    run_dirs: list[Path] = []
+    ocr_ok = _ocr_available(cfg)
+    cad_ok = _cad_available()
     require_scanned = bool(eval_cfg.get("gates", {}).get("require_scanned", False))
+    require_cad = bool(eval_cfg.get("gates", {}).get("require_cad", False))
 
     for case in dataset.get("cases", []):
         case_id = case["id"]
@@ -79,10 +180,24 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
             case_out["status"] = "skipped_ocr_missing"
             case_out["error"] = {
                 "code": "ocr_missing",
-                "message": "Tesseract not available",
+                "message": "No OCR backend available (tried rapidocr, tesseract)",
             }
             if case.get("required", True) and require_scanned:
                 required_failures.append(f"{case_id}: required scanned case skipped (OCR missing)")
+            case_results.append(case_out)
+            (out_dir / f"{case_id}.json").write_text(
+                json.dumps(case_out, indent=2, default=str), encoding="utf-8"
+            )
+            continue
+
+        if bool(case.get("requires_cad")) and not cad_ok:
+            case_out["status"] = "skipped_cad_missing"
+            case_out["error"] = {
+                "code": "cad_missing",
+                "message": "ezdxf not installed",
+            }
+            if case.get("required", True) and require_cad:
+                required_failures.append(f"{case_id}: required CAD case skipped (ezdxf missing)")
             case_results.append(case_out)
             (out_dir / f"{case_id}.json").write_text(
                 json.dumps(case_out, indent=2, default=str), encoding="utf-8"
@@ -99,7 +214,9 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
                 request_id=f"eval-{case_id}-{run_id[:6]}"[:64],
             )
             delta = result["delta"]
+            run_dirs.append(Path(result["run_dir"]))
             case_out["request_id"] = result["request_id"]
+            case_out["run_dir"] = result["run_dir"]
             case_out["changes"] = delta["summary"].get("total_changes")
             case_out["compatible"] = delta["pair_compatibility"].get("compatible")
 
@@ -200,8 +317,10 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     micro = micro_f1(delta_metrics) if delta_metrics else {"precision": 0, "recall": 0, "f1": 0}
     native = next((m for m in delta_metrics if m.get("case_id") == "native_revision"), None)
     scanned = next((m for m in delta_metrics if m.get("case_id") == "scanned_revision"), None)
+    cad = next((m for m in delta_metrics if m.get("case_id") == "cad_revision"), None)
     native_f1 = native["f1"] if native else None
     scanned_f1 = scanned["f1"] if scanned else None
+    cad_f1 = cad["f1"] if cad else None
 
     chat_fact = sum(1 for c in chat_scores if c.get("fact_ok")) / max(1, len(chat_scores))
     cite_prec = sum(c.get("citation_precision", 1) for c in chat_scores) / max(1, len(chat_scores))
@@ -230,6 +349,14 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     else:
         gate_results["scanned_delta_f1"] = True  # not required in this environment
 
+    if cad_f1 is not None:
+        gate_results["cad_delta_f1"] = cad_f1 >= float(gates.get("cad_delta_f1", 0.8))
+    elif require_cad:
+        gate_results["cad_delta_f1"] = False
+        required_failures.append("cad_delta_f1 missing (CAD required)")
+    else:
+        gate_results["cad_delta_f1"] = True
+
     gate_results["pair_mismatch_accuracy"] = mismatch_acc >= float(
         gates.get("pair_mismatch_accuracy", 1.0)
     )
@@ -245,8 +372,11 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
         "git_sha": _git_sha(),
         "config_hash": config_hash(cfg),
         "ocr_available": ocr_ok,
+        "ocr_backend": _ocr_backend_name(cfg),
+        "cad_available": cad_ok,
         "native_delta_f1": native_f1,
         "scanned_delta_f1": scanned_f1,
+        "cad_delta_f1": cad_f1,
         "delta_micro": micro,
         "pair_mismatch_accuracy": round(mismatch_acc, 4),
         "retrieval_recall_at_5": retrieval_r5,
@@ -270,11 +400,21 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
         "all_gates_passed": all(gate_results.values()),
     }
 
+    # Budget analysis reads the metrics.json each pair run already wrote, so it
+    # measures the same execution the quality numbers came from.
+    budget = analyze_budget(run_dirs, eval_cfg)
+    summary["budget"] = budget
+
+    failure_table = build_failure_table(case_results, delta_metrics, chat_scores)
+    summary["known_failures"] = len(failure_table)
+
     scorecard = {
         "summary": summary,
         "case_results": case_results,
         "delta_metrics": delta_metrics,
-        "failure_table": required_failures,
+        "budget": budget,
+        "failure_table": failure_table,
+        "required_failures": required_failures,
     }
     (out_dir / "scorecard.json").write_text(
         json.dumps(scorecard, indent=2, default=str), encoding="utf-8"
@@ -284,9 +424,11 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
         "",
         f"- Git: `{summary['git_sha']}`",
         f"- Config hash: `{summary['config_hash']}`",
-        f"- OCR available: **{ocr_ok}**",
+        f"- OCR available: **{ocr_ok}** (backend: `{summary['ocr_backend']}`)",
+        f"- CAD available: **{cad_ok}**",
         f"- Native delta F1: **{native_f1}**",
         f"- Scanned delta F1: **{scanned_f1}**",
+        f"- CAD delta F1: **{cad_f1}**",
         f"- Pair mismatch accuracy: **{mismatch_acc}**",
         f"- Citation validity: **{cite_val}**",
         f"- Unsupported refusal: **{refusal_acc}**",
@@ -314,11 +456,31 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     ]
     for c in summary["cases"]:
         md.append(f"- `{c['id']}` status={c['status']} metrics={c.get('delta_metrics')}")
-    (out_dir / "scorecard.md").write_text("\n".join(md), encoding="utf-8")
+
+    md += ["", "## Failure table", ""]
+    if failure_table:
+        md.append("| kind | case | detail |")
+        md.append("|---|---|---|")
+        for f in failure_table:
+            md.append(f"| `{f['kind']}` | `{f.get('case_id')}` | {f.get('detail')} |")
+    else:
+        md.append("_No failures recorded on this run._")
+
+    md += ["", *budget_markdown(budget)]
+    (out_dir / "scorecard.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+
+    # Stable path so `make eval-compare` and CI never hunt for a random run id.
+    latest_path = out_dir.parent / "latest.json"
+    latest_path.write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
 
     print("=== EVAL SCORECARD ===")
     print(json.dumps(summary, indent=2, default=str))
-    print(f"Wrote {out_dir / 'scorecard.json'}")
+    if failure_table:
+        print(f"\n--- FAILURE TABLE ({len(failure_table)}) ---")
+        for f in failure_table:
+            print(f"  [{f['kind']}] {f.get('case_id')}: {f.get('detail')}")
+    print(f"\nWrote {out_dir / 'scorecard.json'}")
+    print(f"Wrote {latest_path}")
 
     fail_on_gate = bool(gates.get("fail_on_gate", True))
     if fail_on_gate and not summary["all_gates_passed"]:
