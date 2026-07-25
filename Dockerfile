@@ -1,5 +1,5 @@
-# Multi-stage: React build + Python API with Tesseract
-FROM node:20-bookworm-slim AS frontend-build
+# Multi-stage: React build + Python API with both OCR backends and CAD support
+FROM node:22-bookworm-slim AS frontend-build
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci || npm install
@@ -7,6 +7,8 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.12-slim-bookworm AS runtime
+# tesseract-ocr is the alternate OCR backend; the default (rapidocr) is pip-only.
+# libgl1/libglib2.0-0 are required by the OpenCV build that rapidocr pulls in.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     libgl1 \
@@ -28,7 +30,8 @@ COPY data/registry.json ./data/registry.json
 COPY data/samples/README.md ./data/samples/README.md
 # synthetic samples generated at build for offline demo
 RUN pip install --no-cache-dir -e ".[dev]" \
-    && python -c "from scripts.make_synthetic_pid_pair import main as a; from scripts.make_scanned_pair import main as b; from scripts.build_eval_dataset import main as c; a(); b(); c()"
+    && python -c "from scripts.make_synthetic_pid_pair import main as a; from scripts.make_secondary_pid_pair import main as b; from scripts.make_scanned_pair import main as c; from scripts.make_cad_pair import main as d; from scripts.build_eval_dataset import main as e; a(); b(); c(); d(); e()" \
+    && python -c "from rapidocr_onnxruntime import RapidOCR; RapidOCR()"
 
 COPY --from=frontend-build /frontend/dist ./frontend/dist
 

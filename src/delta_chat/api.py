@@ -8,11 +8,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from delta_chat.config import load_config, project_root
 from delta_chat.errors import DeltaChatError
@@ -41,6 +42,93 @@ app.add_middleware(
 )
 
 MAX_BODY_BYTES = 1_000_000
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)\b[A-Z]:[\\/][^\s,;\"']+")
+_POSIX_ABSOLUTE_PATH = re.compile(r"(?<![\w:])/(?:[^/\s]+/)+[^\s,;\"']*")
+_SENSITIVE_DETAIL_KEYS = {
+    "file",
+    "filename",
+    "local_path",
+    "path",
+    "root",
+    "run_dir",
+    "source_path",
+    "source_uri",
+}
+
+
+def _sanitize_public_text(value: str) -> str:
+    """Remove host filesystem locations from client-visible error strings."""
+    value = _WINDOWS_ABSOLUTE_PATH.sub("<redacted-path>", value)
+    return _POSIX_ABSOLUTE_PATH.sub("<redacted-path>", value)
+
+
+def _sanitize_public_value(value: Any, *, key: str | None = None) -> Any:
+    if key and key.lower() in _SENSITIVE_DETAIL_KEYS:
+        return "<redacted-path>"
+    if isinstance(value, str):
+        return _sanitize_public_text(value)
+    if isinstance(value, dict):
+        return {
+            str(child_key): _sanitize_public_value(child_value, key=str(child_key))
+            for child_key, child_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_public_value(item) for item in value]
+    return value
+
+
+def _public_delta_error(exc: DeltaChatError) -> dict[str, Any]:
+    payload = exc.to_dict()
+    return _sanitize_public_value(payload)
+
+
+class BodyLimitMiddleware:
+    """Enforce the request limit for both Content-Length and chunked bodies."""
+
+    def __init__(self, app: ASGIApp, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = dict(scope.get("headers") or [])
+        content_length = headers.get(b"content-length")
+        if (
+            content_length
+            and content_length.isdigit()
+            and int(content_length) > self.max_body_bytes
+        ):
+            response = JSONResponse({"detail": "Request body too large"}, status_code=413)
+            await response(scope, receive, send)
+            return
+
+        received = 0
+        messages: list[Message] = []
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_body_bytes:
+                    response = JSONResponse({"detail": "Request body too large"}, status_code=413)
+                    await response(scope, receive, send)
+                    return
+                if not message.get("more_body", False):
+                    break
+            else:
+                break
+
+        async def replay_receive() -> Message:
+            if messages:
+                return messages.pop(0)
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+
+app.add_middleware(BodyLimitMiddleware, max_body_bytes=MAX_BODY_BYTES)
 
 
 class RunPairRequest(BaseModel):
@@ -122,7 +210,7 @@ def _load_run_payload(run_id: str) -> dict[str, Any]:
     records_raw = json.loads((run_dir / "retrieval_records.json").read_text(encoding="utf-8"))
     records = [RetrievalRecord.model_validate(r) for r in records_raw]
     cfg = load_config()
-    capture = bool(cfg.get("llm", {}).get("capture_content", True))
+    capture = bool(cfg.get("llm", {}).get("capture_content", False))
     telemetry = LLMTelemetry(run_dir / "llm_calls.jsonl", capture_content=capture)
     return {
         "request_id": run_id,
@@ -137,17 +225,51 @@ def _load_run_payload(run_id: str) -> dict[str, Any]:
     }
 
 
-@app.middleware("http")
-async def body_limit_middleware(request: Request, call_next):
-    cl = request.headers.get("content-length")
-    if cl and cl.isdigit() and int(cl) > MAX_BODY_BYTES:
-        return JSONResponse({"detail": "Request body too large"}, status_code=413)
-    return await call_next(request)
-
-
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    """Liveness plus which optional format capabilities are actually usable.
+
+    A bare "ok" hides the failure that matters most here: the container starts
+    fine with no OCR engine and no CAD reader, and the first scanned or DXF
+    request is the thing that discovers it. Reporting capability up front makes
+    a degraded deployment visible without submitting a document.
+    """
+    from delta_chat.ingest.ocr import available_backends
+
+    ocr = {
+        name: {"available": a.available, "version": a.version, "reason": a.reason}
+        for name, a in available_backends(load_config()).items()
+    }
+    try:
+        import ezdxf
+
+        cad = {"available": True, "version": str(ezdxf.__version__)}
+    except Exception as exc:  # noqa: BLE001
+        cad = {"available": False, "reason": str(exc)}
+
+    return {
+        "status": "ok",
+        "capabilities": {
+            "native_pdf": True,
+            "scanned_pdf": any(v["available"] for v in ocr.values()),
+            "cad_dxf": cad["available"],
+            # DWG needs an external converter on top of the DXF reader.
+            "cad_dwg": cad["available"] and bool(_dwg_converter_configured()),
+        },
+        "ocr_backends": ocr,
+        "cad": cad,
+    }
+
+
+def _dwg_converter_configured() -> bool:
+    import os
+    import shutil
+
+    cfg = load_config().get("dwg", {}) or {}
+    candidate = cfg.get("converter_path") or os.environ.get("DWG_CONVERTER_PATH")
+    if candidate and Path(candidate).exists():
+        return True
+    return bool(shutil.which("ODAFileConverter") or shutil.which("dwg2dxf"))
 
 
 @app.get("/api/pids")
@@ -185,24 +307,15 @@ def api_run_pair(body: RunPairRequest) -> dict[str, Any]:
     except InvalidRequestIdError as exc:
         raise HTTPException(status_code=400, detail=exc.to_dict()) from exc
     except DeltaChatError as exc:
-        raise HTTPException(status_code=400, detail=exc.to_dict()) from exc
+        raise HTTPException(status_code=400, detail=_public_delta_error(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=500,
-            detail={"error_type": type(exc).__name__, "message": str(exc)},
+            detail={"error_type": "InternalServerError", "message": "Internal processing error"},
         ) from exc
 
     rid = result["request_id"]
-    return {
-        "request_id": rid,
-        "pid_a": result["pid_a"],
-        "pid_b": result["pid_b"],
-        "delta": result["delta"],
-        "paths": _public_paths(rid),
-        "summary": result["delta"].get("summary"),
-        "pair_compatibility": result["delta"].get("pair_compatibility"),
-        "warnings": result["delta"].get("warnings"),
-    }
+    return get_run(rid)
 
 
 @app.get("/api/runs")
@@ -297,11 +410,11 @@ def api_chat(run_id: str, body: ChatRequest) -> dict[str, Any]:
     except HTTPException:
         raise
     except DeltaChatError as exc:
-        raise HTTPException(status_code=400, detail=exc.to_dict()) from exc
+        raise HTTPException(status_code=400, detail=_public_delta_error(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=500,
-            detail={"error_type": type(exc).__name__, "message": str(exc)},
+            detail={"error_type": "InternalServerError", "message": "Internal processing error"},
         ) from exc
 
 
