@@ -126,9 +126,8 @@ than implying a hosted model was evaluated.
 
 To turn it on:
 
-1. Build with the extra: `docker build --build-arg INSTALL_LLM=true .`
-   The default is `false` because litellm is large and the default deployment
-   never executes that path.
+1. The Docker image includes the LiteLLM extra by default. To build a smaller
+   extractive-only image, use `docker build --build-arg INSTALL_LLM=false .`.
 2. Set `LLM_PROVIDER` and `LLM_MODEL`.
 3. Store the provider key as a **secret**, not a plain env var:
 
@@ -137,7 +136,9 @@ To turn it on:
      --update-secrets OPENAI_API_KEY=projects/PROJECT/secrets/openai-key:latest
    ```
 
-4. Keep `extractive` as the fallback so the system still runs without a key.
+4. Hosted clients automatically fall back to `extractive` on provider errors
+   or free-tier throttling; the answer provider is labeled
+   `extractive_fallback` so this is visible rather than silently misreported.
 5. Verify real token counts, latency and cost land in `llm_calls.jsonl`, and
    that citations still validate. Cost reports as `unavailable` until a provider
    returns a real figure — never `0.00`.

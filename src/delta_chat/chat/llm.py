@@ -264,6 +264,29 @@ class LiteLLMClient:
         return data
 
 
+class FallbackLLMClient:
+    """Use the deterministic client when the hosted provider is unavailable.
+
+    The primary failure is still captured by ``LiteLLMClient`` telemetry. This
+    keeps the public demo usable during free-tier throttling without pretending
+    that the fallback answer came from the hosted model.
+    """
+
+    def __init__(self, primary: LLMClient, fallback: LLMClient) -> None:
+        self.primary = primary
+        self.fallback = fallback
+        self.provider = primary.provider
+
+    def answer(self, prompt: str, *, system: str = "") -> dict[str, Any]:
+        try:
+            result = self.primary.answer(prompt, system=system)
+            self.provider = self.primary.provider
+            return result
+        except Exception:  # noqa: BLE001
+            self.provider = f"{self.fallback.provider}_fallback"
+            return self.fallback.answer(prompt, system=system)
+
+
 def build_llm_client(config: dict, telemetry: LLMTelemetry | None = None) -> Any:
     lcfg = config.get("llm", {})
     provider = (os.environ.get("LLM_PROVIDER") or lcfg.get("provider") or "extractive").lower()
@@ -274,9 +297,10 @@ def build_llm_client(config: dict, telemetry: LLMTelemetry | None = None) -> Any
         return FakeLLMClient(telemetry=telemetry)
     if not model:
         return ExtractiveLLMClient(telemetry=telemetry)
-    return LiteLLMClient(
+    primary = LiteLLMClient(
         model=model,
         temperature=float(lcfg.get("temperature", 0.0)),
         max_tokens=int(lcfg.get("max_tokens", 800)),
         telemetry=telemetry,
     )
+    return FallbackLLMClient(primary, ExtractiveLLMClient(telemetry=telemetry))

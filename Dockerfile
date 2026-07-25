@@ -37,12 +37,10 @@ COPY eval ./eval
 COPY data/registry.json ./data/registry.json
 COPY data/samples/README.md ./data/samples/README.md
 
-# Include the LiteLLM provider path in the image. Off by default: litellm is a
-# large dependency and the demo runs the deterministic `extractive` provider, so
-# shipping it would be weight for a code path the default deployment never
-# executes. Build with --build-arg INSTALL_LLM=true to enable a hosted model.
+# Include the LiteLLM provider path in deployable images so the same image can
+# switch between the no-key extractive baseline and a hosted model at runtime.
 # This never bakes in a key -- credentials stay runtime-only.
-ARG INSTALL_LLM=false
+ARG INSTALL_LLM=true
 
 # synthetic samples generated at build for offline demo
 RUN if [ "$INSTALL_LLM" = "true" ]; then EXTRAS=".[dev,llm]"; else EXTRAS=".[dev]"; fi \
