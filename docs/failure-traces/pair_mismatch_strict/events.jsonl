@@ -1,0 +1,5 @@
+{"ts": 1784986396.6304696, "event": "run.start", "request_id": "failcase-pair-mismatch", "pid_a": "PID-LIFT", "pid_b": "PID-EXPORT", "mismatch_mode": "strict"}
+{"ts": 1784986397.1915553, "event": "format.detect.a", "vector_count_sample": 5391, "page_count": 1, "format_family": "pdf", "text_chars_sample": 9748, "size": 615801, "adapter": "native_pdf", "image_coverage_est": 0.0}
+{"ts": 1784986397.6797016, "event": "format.detect.b", "vector_count_sample": 4595, "page_count": 1, "format_family": "pdf", "text_chars_sample": 8532, "size": 367923, "adapter": "native_pdf", "image_coverage_est": 0.0}
+{"ts": 1784986397.8427474, "event": "error", "error_type": "PairMismatchError", "code": "pair_mismatch"}
+{"ts": 1784986397.8437476, "event": "run.failed", "error_type": "PairMismatchError"}

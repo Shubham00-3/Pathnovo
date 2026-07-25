@@ -1,0 +1,17 @@
+{
+  "stage_latency_ms": {},
+  "counts": {
+    "elements_a": 957,
+    "elements_b": 778
+  },
+  "errors": {
+    "PairMismatchError": 1
+  },
+  "llm": {
+    "calls": 0,
+    "total_tokens": 0,
+    "total_cost": null,
+    "cost_status": "unavailable",
+    "cost_reason": "no_provider_pricing_table"
+  }
+}

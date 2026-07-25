@@ -1,0 +1,88 @@
+{
+  "request_id": "failcase-pair-mismatch",
+  "correlation_id": "failcase-pair-mismatch",
+  "parent_run_id": null,
+  "spans": [
+    {
+      "name": "pid.resolve.a",
+      "start": 1784986396.6325061,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-LIFT",
+        "sha256": "60097dade8dda6287498e64c00ab85d5614bb77816ad1c2ec26a2abe6c1241fd"
+      },
+      "request_id": "failcase-pair-mismatch",
+      "correlation_id": "failcase-pair-mismatch",
+      "end": 1784986396.6339824,
+      "duration_ms": 1.48
+    },
+    {
+      "name": "pid.resolve.b",
+      "start": 1784986396.6339824,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-EXPORT",
+        "sha256": "0316ffd320a1629c23c7f2808ad4a6a97b5bfc8825cf36c99dec22225508fbc3"
+      },
+      "request_id": "failcase-pair-mismatch",
+      "correlation_id": "failcase-pair-mismatch",
+      "end": 1784986396.6354878,
+      "duration_ms": 1.51
+    },
+    {
+      "name": "ingest.a",
+      "start": 1784986396.6354878,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-LIFT",
+        "adapter": "native_pdf",
+        "elements": 957
+      },
+      "request_id": "failcase-pair-mismatch",
+      "correlation_id": "failcase-pair-mismatch",
+      "end": 1784986397.1915553,
+      "duration_ms": 556.07
+    },
+    {
+      "name": "ingest.b",
+      "start": 1784986397.1915553,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-EXPORT",
+        "adapter": "native_pdf",
+        "elements": 778
+      },
+      "request_id": "failcase-pair-mismatch",
+      "correlation_id": "failcase-pair-mismatch",
+      "end": 1784986397.6797016,
+      "duration_ms": 488.15
+    },
+    {
+      "name": "pair.compatibility",
+      "start": 1784986397.839749,
+      "status": "ok",
+      "attributes": {
+        "mode": "strict"
+      },
+      "request_id": "failcase-pair-mismatch",
+      "correlation_id": "failcase-pair-mismatch",
+      "end": 1784986397.839749,
+      "duration_ms": 0.0
+    },
+    {
+      "name": "delta.engine",
+      "start": 1784986397.839749,
+      "status": "error",
+      "attributes": {},
+      "request_id": "failcase-pair-mismatch",
+      "correlation_id": "failcase-pair-mismatch",
+      "error": {
+        "type": "PairMismatchError",
+        "message": "Document pair is not a plausible revision pair"
+      },
+      "end": 1784986397.8417478,
+      "duration_ms": 2.0
+    }
+  ],
+  "total_duration_ms": 1049.21
+}

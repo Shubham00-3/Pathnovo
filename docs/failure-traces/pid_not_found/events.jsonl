@@ -1,0 +1,3 @@
+{"ts": 1784986398.450676, "event": "run.start", "request_id": "failcase-pid-not-found", "pid_a": "PID-DOES-NOT-EXIST", "pid_b": "PID-SYN-B", "mismatch_mode": null}
+{"ts": 1784986398.4536765, "event": "error", "error_type": "PidNotFoundError", "code": "pid_not_found"}
+{"ts": 1784986398.454678, "event": "run.failed", "error_type": "PidNotFoundError"}

@@ -1,0 +1,4 @@
+{"ts": 1784986397.8997698, "event": "run.start", "request_id": "failcase-dwg-no-converter", "pid_a": "PID-CAD-A", "pid_b": "PID-DWG-NOCONV", "mismatch_mode": null}
+{"ts": 1784986398.3721757, "event": "format.detect.a", "format_family": "dxf", "size": 48120, "adapter": "dxf"}
+{"ts": 1784986398.4048977, "event": "error", "error_type": "UnsupportedFormatError", "code": "unsupported_format"}
+{"ts": 1784986398.4068983, "event": "run.failed", "error_type": "UnsupportedFormatError"}

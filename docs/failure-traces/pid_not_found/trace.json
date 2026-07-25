@@ -1,0 +1,24 @@
+{
+  "request_id": "failcase-pid-not-found",
+  "correlation_id": "failcase-pid-not-found",
+  "parent_run_id": null,
+  "spans": [
+    {
+      "name": "pid.resolve.a",
+      "start": 1784986398.4536765,
+      "status": "error",
+      "attributes": {
+        "pid": "PID-DOES-NOT-EXIST"
+      },
+      "request_id": "failcase-pid-not-found",
+      "correlation_id": "failcase-pid-not-found",
+      "error": {
+        "type": "PidNotFoundError",
+        "message": "PID not found: PID-DOES-NOT-EXIST"
+      },
+      "end": 1784986398.4536765,
+      "duration_ms": 0.0
+    }
+  ],
+  "total_duration_ms": 0.0
+}

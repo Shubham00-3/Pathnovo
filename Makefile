@@ -1,4 +1,4 @@
-.PHONY: samples lint format format-check typecheck test eval eval-compare eval-baseline demo verify verify-py frontend-install frontend-build frontend-lint frontend-test api
+.PHONY: failure-traces samples lint format format-check typecheck test eval eval-compare eval-baseline demo verify verify-py frontend-install frontend-build frontend-lint frontend-test api
 
 PYTHON ?= .venv/Scripts/python.exe
 ifeq ($(OS),Windows_NT)
@@ -31,6 +31,10 @@ lint: format-check typecheck
 
 test:
 	$(PYTHON) -m pytest -q
+
+# Provoke real failures and refresh the committed traces under docs/.
+failure-traces:
+	$(PYTHON) scripts/capture_failure_traces.py
 
 eval:
 	$(PYTHON) -m eval.run

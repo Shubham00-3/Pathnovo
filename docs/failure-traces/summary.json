@@ -1,0 +1,89 @@
+{
+  "generated_by": "scripts/capture_failure_traces.py",
+  "note": "Produced by running the real pipeline. Each case aborted with a typed error; the trace shows which stage failed and errors.jsonl records why.",
+  "cases": [
+    {
+      "case": "pair_mismatch_strict",
+      "description": "Two unrelated drawings compared in strict mode",
+      "raised": "PairMismatchError",
+      "code": "pair_mismatch",
+      "message": "Document pair is not a plausible revision pair",
+      "details": {
+        "compatible": false,
+        "score": 0.1,
+        "threshold": 0.65,
+        "reasons": [
+          "underlying_document_id differs",
+          "stable-token overlap is moderate",
+          "primary equipment tag differs",
+          "title/block text differs strongly"
+        ],
+        "token_overlap": 0.388,
+        "equipment_a": [
+          "26-KA-901"
+        ],
+        "equipment_b": [
+          "26-KA-902"
+        ],
+        "underlying_a": "DOC-LIFT-COMPRESSOR",
+        "underlying_b": "DOC-EXPORT-COMPRESSOR",
+        "mode": "strict"
+      },
+      "outcome": "typed error with actionable details",
+      "artifacts": [
+        "trace.json",
+        "errors.jsonl",
+        "events.jsonl",
+        "metrics.json"
+      ]
+    },
+    {
+      "case": "dwg_without_converter",
+      "description": "DWG input with no ODA/dwg2dxf converter configured",
+      "raised": "UnsupportedFormatError",
+      "code": "unsupported_format",
+      "message": "DWG requires an external converter; none is configured",
+      "details": {
+        "detected_format": "dwg",
+        "missing_dependency": "ODA File Converter (or dwg2dxf)",
+        "suggested_configuration": "Set dwg.converter_path in config/default.yaml or the DWG_CONVERTER_PATH env var. DXF inputs need no converter."
+      },
+      "outcome": "typed error with actionable details",
+      "artifacts": [
+        "trace.json",
+        "errors.jsonl",
+        "events.jsonl",
+        "metrics.json"
+      ]
+    },
+    {
+      "case": "pid_not_found",
+      "description": "A PID that is not in the registry",
+      "raised": "PidNotFoundError",
+      "code": "pid_not_found",
+      "message": "PID not found: PID-DOES-NOT-EXIST",
+      "details": {
+        "pid": "PID-DOES-NOT-EXIST",
+        "known": [
+          "PID-CAD-A",
+          "PID-CAD-B",
+          "PID-EXPORT",
+          "PID-LIFT",
+          "PID-SYN-A",
+          "PID-SYN-B",
+          "PID-SYN-SCAN-A",
+          "PID-SYN-SCAN-B",
+          "PID-SYN2-A",
+          "PID-SYN2-B"
+        ]
+      },
+      "outcome": "typed error with actionable details",
+      "artifacts": [
+        "trace.json",
+        "errors.jsonl",
+        "events.jsonl",
+        "metrics.json"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "request_id": "failcase-dwg-no-converter",
+  "correlation_id": "failcase-dwg-no-converter",
+  "parent_run_id": null,
+  "spans": [
+    {
+      "name": "pid.resolve.a",
+      "start": 1784986397.912431,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-CAD-A",
+        "sha256": "976c28c87be11fcfab86d957b938eb42a699ffcd5a58018e142ff04e9b702260"
+      },
+      "request_id": "failcase-dwg-no-converter",
+      "correlation_id": "failcase-dwg-no-converter",
+      "end": 1784986397.913873,
+      "duration_ms": 1.44
+    },
+    {
+      "name": "pid.resolve.b",
+      "start": 1784986397.913873,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-DWG-NOCONV",
+        "sha256": "6045fa1a79cbf72707e870973e1fae8ee385386c94d7b0556463fbc1f1433b82"
+      },
+      "request_id": "failcase-dwg-no-converter",
+      "correlation_id": "failcase-dwg-no-converter",
+      "end": 1784986397.9159565,
+      "duration_ms": 2.08
+    },
+    {
+      "name": "ingest.a",
+      "start": 1784986397.9159565,
+      "status": "ok",
+      "attributes": {
+        "pid": "PID-CAD-A",
+        "adapter": "dxf",
+        "elements": 26
+      },
+      "request_id": "failcase-dwg-no-converter",
+      "correlation_id": "failcase-dwg-no-converter",
+      "end": 1784986398.3721757,
+      "duration_ms": 456.22
+    },
+    {
+      "name": "ingest.b",
+      "start": 1784986398.3721757,
+      "status": "error",
+      "attributes": {
+        "pid": "PID-DWG-NOCONV"
+      },
+      "request_id": "failcase-dwg-no-converter",
+      "correlation_id": "failcase-dwg-no-converter",
+      "error": {
+        "type": "UnsupportedFormatError",
+        "message": "DWG requires an external converter; none is configured"
+      },
+      "end": 1784986398.4038985,
+      "duration_ms": 31.72
+    }
+  ],
+  "total_duration_ms": 491.46
+}

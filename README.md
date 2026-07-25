@@ -4,6 +4,25 @@ Format-agnostic pipeline that resolves two **PIDs**, normalizes them into a **ca
 
 **Primary UI:** React (Vite) served by **FastAPI** on port **8000**.
 
+## Start here
+
+```bash
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # Windows: .\.venv\Scripts\pip
+python scripts/verify.py     # samples, lint, types, 106 tests, eval gates, regression check (~60s)
+```
+
+If you have five minutes and want the substance rather than the tour:
+
+| Question | Where |
+|---|---|
+| How is content aligned between revisions, and where does it break? | [Alignment](#alignment--the-hard-part) — Hungarian assignment over a 5-signal cost matrix, and the registration assumption that breaks it |
+| Can the eval actually detect a regression? | [Eval integrity](#eval-integrity) — an external review found most of the 1.00s were untestable; what changed, and what the numbers moved to |
+| What does a failed request look like? | [`docs/failure-traces/`](docs/failure-traces/) — three real failures, committed |
+| Where is the LLM, and where is it deliberately not? | [Where the LLM is, and is not](#where-the-llm-is-and-is-not) |
+| What doesn't work? | [Where it fails](#where-it-fails) |
+
+The honest headline: three formats run end-to-end, the delta engine is deterministic and does real alignment rather than text diffing, and the evaluation is now falsifiable — but the chat metrics grade a deterministic extractive provider, **not** a hosted LLM, and nothing here measures real LLM hallucination.
+
 ## What is implemented
 
 | Area | Status |
@@ -100,6 +119,18 @@ PID A/B → resolver → content-sniffing detector
 
 The **canonical representation** is the load-bearing seam: normalized top-left bounding boxes, extracted identifiers, kind classification, and an extraction confidence. Nothing downstream of it knows whether a page came from a vector PDF, a raster scan, or a CAD modelspace. Adding the CAD adapter required no change to the delta engine, retrieval, or chat — which is the closest thing to proof the abstraction holds.
 
+### Alignment — the hard part
+
+Diffing two documents is trivial once you know which element in A corresponds to which in B. Establishing that correspondence is the whole problem, and it runs in three stages.
+
+**1. Put both pages in one coordinate frame.** A rescan is never pixel-aligned with its original. ORB features plus RANSAC estimate an affine transform from A to B; if too few inliers survive, ECC intensity alignment takes over. The result is validated for plausibility — a determinant or scale far from 1 means the estimate is wrong, and confidence is capped so downstream stages distrust it rather than acting on a bad warp. Registration confidence propagates into every change's confidence score.
+
+**2. Match elements, globally not greedily.** Every plausible A/B element pair is scored on five signals — identifier overlap (an equipment tag is near-decisive), text similarity blending token-set and character ratios, spatial IoU and centroid distance after transform, kind compatibility, and relative size. Pairs are then assigned by **Hungarian assignment over the cost matrix**, not nearest-neighbour: greedy matching lets one confident pair steal an element a different pair needed more, and the mistake cascades. A radius gate keeps the matrix tractable, with an identifier override so a tag that moved across the sheet can still match.
+
+**3. Classify what the match means.** A matched pair becomes `unchanged`, `moved` (centroid shifted beyond tolerance, content equal), `modified` (content differs), or `moved_modified`. Numeric tokens are compared separately from fuzzy text similarity so `12000 → 12500` can never be absorbed as noise. Unmatched A elements are `removed`, unmatched B elements `added`. Residual pixel differences that no semantic change explains become `geometry_region` changes — that path is what catches an added pipe branch carrying no text.
+
+**Where it breaks.** Registration is the weak link: it assumes one sheet per page and a global affine relationship. A drawing re-laid-out between revisions, or a multi-sheet page, violates that and the matcher degrades into add/remove pairs. The system's defence is to reject low-confidence registration rather than trust it — which is honest but means it declines to help exactly when the comparison is hardest. Identifier-poor content (pure geometry, unlabelled symbols) matches on spatial and size signals alone and is correspondingly weaker. And the residual path still produces one false positive per case, discussed under *Where it fails*.
+
 ### Format detection
 
 Content-sniffed, not extension-based: DWG by `AC10xx` magic, DXF by its `SECTION` header or binary sentinel, PDF routed to native vs scanned by text density, vector count, and image coverage.
@@ -117,6 +148,20 @@ The delta engine is fully deterministic: same inputs, same `delta.json`. The LLM
 ## Observability
 
 Every run writes to `artifacts/runs/<request_id>/`: `trace.json` (spans with per-stage timings, chat spans correlated to the parent run), `events.jsonl` (structured logs with correlation ids), `llm_calls.jsonl` (model, tokens, cost, content only when `capture_content` is on), `metrics.json`, and `errors.jsonl`. `GET /api/health` reports which format capabilities are actually usable, so a degraded deployment is visible without submitting a document.
+
+Homegrown rather than OpenTelemetry: the whole surface is one process and a handful of stages, and a tracer I wrote is one file I can point at rather than a collector to stand up. The span shape is deliberately OTel-compatible so swapping the writer is a contained change.
+
+### Seeing a failure
+
+Traces live under gitignored `artifacts/`, so a fresh clone would show no evidence that failures are handled at all. Three real ones are committed instead, in **[`docs/failure-traces/`](docs/failure-traces/)** — produced by running the pipeline, not hand-written:
+
+| Case | Raised |
+|---|---|
+| Two unrelated drawings, strict mode | `PairMismatchError` — with score, threshold, and the reasons it refused |
+| DWG with no converter installed | `UnsupportedFormatError` — names the missing dependency and the config key |
+| Unresolvable PID | `PidNotFoundError` |
+
+In each, the failing span carries `"status": "error"` while earlier spans keep their timings, so you can see how far the request got. Regenerate with `make failure-traces`.
 
 ## Evaluation
 
