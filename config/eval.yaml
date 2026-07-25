@@ -8,7 +8,7 @@ gates:
   scanned_delta_f1: 0.45
   cad_delta_f1: 0.80
   pair_mismatch_accuracy: 1.0
-  citation_validity: 1.0
+  citation_groundedness: 1.0
   unsupported_refusal: 1.0
   fail_on_gate: true
   require_scanned: true

@@ -28,8 +28,11 @@ def citation_supports_answer(answer_text: str, evidence_text: str) -> bool:
     if answer_numbers and not (answer_numbers & evidence_numbers):
         return False
     overlap = len(a & e) / max(1, len(a))
+    # `sorted`, not `list`: iterating a set of strings follows PYTHONHASHSEED, so
+    # `list(a)[:8]` checked a different eight tokens on each process and citation
+    # validation was not reproducible between runs.
     return overlap >= 0.12 or any(
-        tok in evidence_text.lower() for tok in list(a)[:8] if len(tok) > 4
+        tok in evidence_text.lower() for tok in sorted(a)[:8] if len(tok) > 4
     )
 
 

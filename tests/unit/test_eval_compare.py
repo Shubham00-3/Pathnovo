@@ -17,12 +17,12 @@ def _card(**overrides):
         "scanned_delta_f1": 0.67,
         "cad_delta_f1": 0.83,
         "pair_mismatch_accuracy": 1.0,
-        "citation_validity": 1.0,
+        "citation_groundedness": 1.0,
         "unsupported_refusal_accuracy": 1.0,
         "chat_fact_accuracy": 1.0,
         "retrieval_recall_at_5": 1.0,
         "citation_precision": 1.0,
-        "gates": {"native_delta_f1": True, "citation_validity": True},
+        "gates": {"native_delta_f1": True, "citation_groundedness": True},
     }
     base.update(overrides)
     return base
@@ -57,7 +57,7 @@ def test_improvement_is_reported_separately():
 
 
 def test_zero_tolerance_metrics_regress_on_any_drop():
-    result = compare(_card(), _card(citation_validity=0.99))
+    result = compare(_card(), _card(citation_groundedness=0.99))
 
     assert result["has_regression"]
 
@@ -81,10 +81,12 @@ def test_a_newly_added_metric_is_not_a_regression():
 
 
 def test_a_gate_flipping_to_failing_is_a_regression():
-    result = compare(_card(), _card(gates={"native_delta_f1": True, "citation_validity": False}))
+    result = compare(
+        _card(), _card(gates={"native_delta_f1": True, "citation_groundedness": False})
+    )
 
     assert result["has_regression"]
-    assert any(r["metric"] == "gate:citation_validity" for r in result["regressions"])
+    assert any(r["metric"] == "gate:citation_groundedness" for r in result["regressions"])
 
 
 def test_large_latency_increase_is_a_regression():
@@ -95,6 +97,42 @@ def test_large_latency_increase_is_a_regression():
 
     assert result["has_regression"]
     assert result["latency"]["status"] == "regressed"
+
+
+class TestDatasetComparability:
+    """A harder dataset lowers scores without the system getting worse.
+
+    Reporting that as a regression is how a regression detector gets ignored.
+    """
+
+    def test_a_drop_on_the_same_dataset_is_a_regression(self):
+        result = compare(
+            _card(dataset_hash="abc"),
+            _card(dataset_hash="abc", native_delta_f1=0.55),
+        )
+
+        assert result["dataset_changed"] is False
+        assert result["has_regression"] is True
+
+    def test_a_drop_after_a_dataset_change_is_not_attributable(self):
+        result = compare(
+            _card(dataset_hash="abc"),
+            _card(dataset_hash="xyz", native_delta_f1=0.55),
+        )
+
+        assert result["dataset_changed"] is True
+        # The difference is still reported...
+        assert result["regressions"]
+        assert result["regressions_not_attributable"] is True
+        # ...but not asserted as the system getting worse.
+        assert result["has_regression"] is False
+
+    def test_scorecards_without_a_dataset_hash_still_compare(self):
+        """Baselines written before the field existed must not break."""
+        result = compare(_card(), _card(native_delta_f1=0.55))
+
+        assert result["dataset_changed"] is False
+        assert result["has_regression"] is True
 
 
 def test_modest_latency_variation_is_tolerated():

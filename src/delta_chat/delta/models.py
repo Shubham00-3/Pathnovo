@@ -35,6 +35,10 @@ class DeltaReport(BaseModel):
     delta_id: str
     pid_a: str
     pid_b: str
+    # Revision labels of the compared pair. Carried so downstream consumers can
+    # tell whether a question is even in scope for this comparison.
+    revision_a: str = ""
+    revision_b: str = ""
     pair_compatibility: dict[str, Any]
     config_hash: str
     generated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

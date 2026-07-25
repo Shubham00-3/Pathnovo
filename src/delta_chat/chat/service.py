@@ -180,10 +180,57 @@ class ChatService:
             meta={"refusal_reason": reason},
         )
 
+    def _out_of_scope_revision(self, question: str) -> str | None:
+        """Revision label named in the question that this pair does not contain.
+
+        Asked "what is the duty value in revision C?" against an A/B pair, the
+        retriever happily returns Rev B's duty and the system answers it: the
+        question looks like every other duty question, and nothing downstream
+        checks that revision C exists. That is a confidently wrong answer about
+        a document that was never compared, so it is caught here rather than
+        left to the support threshold, which has no notion of revision scope.
+        """
+        labels = {
+            str(self.delta.revision_a or "").strip().upper(),
+            str(self.delta.revision_b or "").strip().upper(),
+        }
+        labels.discard("")
+        if not labels:
+            return None
+
+        # The \b after the keyword is load-bearing: without it, "between the
+        # revisions" matches the plural "s" as a revision label and every
+        # comparison question gets refused as out of scope.
+        for match in re.finditer(r"\brev(?:ision)?\b\s*[:\-]?\s*([A-Z0-9]{1,3})\b", question, re.I):
+            asked = match.group(1).strip().upper()
+            # Bare digits are usually a revision *number* in prose ("revision 2
+            # of the note"), and pages/sheets share that shape; only treat a
+            # token as a revision label when it looks like one.
+            if asked in labels:
+                continue
+            if asked.isdigit() and asked not in labels:
+                return asked
+            if asked.isalpha():
+                return asked
+        return None
+
     def ask(self, question: str) -> ChatAnswer:
         tracer = self.tracer
 
         def _run() -> ChatAnswer:
+            out_of_scope = self._out_of_scope_revision(question)
+            if out_of_scope is not None:
+                ans = self._refusal([], "general", "revision_out_of_scope")
+                ans.answer = (
+                    f"This comparison covers revisions "
+                    f"{self.delta.revision_a} and {self.delta.revision_b} only; "
+                    f"revision {out_of_scope} is not part of it."
+                )
+                if tracer:
+                    with tracer.span("answer.refusal", reason="revision_out_of_scope"):
+                        pass
+                return ans
+
             det = self._deterministic(question)
             if det is not None:
                 if tracer:

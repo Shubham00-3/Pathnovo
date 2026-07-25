@@ -35,6 +35,33 @@ cases:
         unsupported: true
         must_include: []
         require_citation: false
+
+      # Near-miss traps. The refusal questions here and below use vocabulary
+      # absent from the corpus entirely ("paint", "hydrotest"), so retrieval
+      # returns nothing and refusing is trivial. These use terms that ARE
+      # present, attached to the wrong entity -- which is how a real user asks
+      # something the drawing cannot answer. A system that pattern-matches on
+      # keywords answers confidently and scores zero here.
+      - id: trap_wrong_instrument_setpoint
+        # "HH" and "26-PT-9070" both exist; the HH setpoint belongs to
+        # 26-PIT-9062 and 26-PT-9070 has none.
+        question: What is the HH setpoint for 26-PT-9070?
+        unsupported: true
+        must_include: []
+        require_citation: false
+      - id: trap_nonexistent_revision
+        # "duty" and "revision" are both in the corpus. Revision C is not.
+        question: What is the duty value in revision C?
+        unsupported: true
+        must_include: []
+        require_citation: false
+      - id: trap_other_document_equipment
+        # "motor" is present; 26-KA-902 belongs to the export drawing, not this
+        # pair. Reporting this pair's motor rating would be a real error.
+        question: What is the motor rating for 26-KA-902?
+        unsupported: true
+        must_include: []
+        require_citation: false
       - id: vendor_supported_if_present
         # "vendor" is not a blacklist word; without evidence this must refuse
         question: Did the motor vendor change?
@@ -45,6 +72,21 @@ cases:
       - query: "26-PIT-9062"
         expect_families: ["rev_a", "rev_b", "delta"]
         must_match_text: "26-PIT-9062"
+      # A bare tag echoed back by a lexical + identifier retriever is close to
+      # tautological. These require the retriever to reach the right record from
+      # wording that does not contain the target string verbatim.
+      - query: "what is the high-high alarm setpoint"
+        expect_families: ["rev_a", "rev_b", "delta"]
+        must_match_text: "HH"
+      - query: "compressor throughput capacity"
+        expect_families: ["rev_a", "rev_b", "delta"]
+        must_match_text: "Duty"
+      - query: "which note was added in the latest revision"
+        expect_families: ["delta", "rev_b"]
+        must_match_text: "NOTE 12"
+      - query: "isolation valve on the new branch"
+        expect_families: ["rev_b", "delta"]
+        must_match_text: "HV-205"
 
   - id: scanned_revision
     description: Scanned variant of the synthetic pair

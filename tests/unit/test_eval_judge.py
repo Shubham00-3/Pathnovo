@@ -22,4 +22,8 @@ def test_citation_with_real_id_but_unrelated_quote_is_invalid() -> None:
         },
     )
     assert result["fact_ok"] is True
-    assert result["citation_validity"] == 0.0
+    # The answer claims 250 but cites evidence reading "Duty: 12500". Under the
+    # old substring match, "250" was found inside "12500" and this scored as
+    # grounded; boundary-aware matching now reports it correctly.
+    assert result["citation_groundedness"] == 0.0
+    assert result["groundedness_measured"] is True

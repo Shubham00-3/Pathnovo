@@ -34,11 +34,16 @@ Reproduce with `make eval` (numbers from `artifacts/eval/latest.json`):
 | Scanned delta F1 | **0.923** |
 | CAD delta F1 | **0.833** |
 | Pair mismatch accuracy | **1.00** |
-| Retrieval recall@5 | **1.00** |
-| Chat fact accuracy | **1.00** (15 Q&A) |
-| Citation validity | **1.00** |
-| Unsupported refusal accuracy | **1.00** |
+| Retrieval recall@5 | **0.833** (6 queries, 5 semantic) |
+| Chat fact accuracy | **1.00** (18 Q&A) |
+| Citation groundedness | **1.00** (asserted on 9 of 18) |
+| Unsupported refusal accuracy | **1.00** (7 incl. 3 near-miss traps) |
 | All gates passed | **true** |
+
+Several of these read 1.00 for a while because the dataset could not make them
+fail. That is now addressed and documented under *Eval integrity* below —
+sample sizes and what each metric can actually falsify matter more than the
+number next to it.
 
 The scorecard also prints a **failure table** enumerating every false positive, missed change, and chat miss — not just gate breaches. See *Where it fails*.
 
@@ -121,6 +126,37 @@ Every run writes to `artifacts/runs/<request_id>/`: `trace.json` (spans with per
 
 **Budgets.** Each scorecard carries per-stage p50/p95/max against declared budgets. This is not decoration — it found a real performance bug. Markup overlay was running at **9.7s p95** against a 2s budget. My first guess was preview rasterization; measuring showed that took 0.05s. The actual cause was per-change PDF writes: `new_shape()`/`commit()` and `insert_text()` each emit their own content stream, ~15ms apiece, invisible on a 6-change pair and ruinous on the 624-change mismatch pair. Batching boxes by style and routing labels through a single `TextWriter` took it to **296ms p95**, a 33× improvement, and end-to-end p95 from 13.4s to 6.5s.
 
+### Eval integrity
+
+An external review found that most of the perfect scores were properties of the
+test set rather than of the system. That critique was correct, and acting on it
+changed real numbers.
+
+| Defect | What it meant | Now |
+|---|---|---|
+| `citation_validity` was circular | The judge graded citations with `citation_supports_answer` — the same function production already used to *discard* failing citations. Every citation it saw had passed that exact test, so the metric could not go below 1.00 | Replaced with `citation_groundedness`: does the cited evidence contain the labelled value? It can and does score 0 |
+| Substring fact matching | Expected `"250"` passed against duty `"12500"`; `"185"` against `"1185"`. Wrong answers scored as correct | Boundary-aware numeric matching, whitespace-tolerant text matching for OCR |
+| Refusal traps were free | Refusal questions used words absent from the corpus (`paint`, `hydrotest`), so retrieval returned nothing and refusing was trivial | Added three near-miss traps using vocabulary that *is* present, attached to the wrong entity. **One failed**: asked for the duty in "revision C" the system returned Rev B's value. Fixed by revision-scope checking |
+| Tautological retrieval | n=2, both bare instrument tags checked by substring against a lexical+identifier retriever | n=6, five phrased semantically (`"compressor throughput capacity"`). Recall dropped 1.00 → **0.833** — one genuine miss, `"isolation valve on the new branch"` not reaching `HV-205` |
+| Metrics that cannot fail | 6 of 15 Q&A had `must_include: []` or `unsupported: true` | Reported explicitly: `citation_groundedness_n_measured` says how many were actually assertable (9 of 18) |
+
+The chat metrics still grade the deterministic `extractive` provider, not a
+hosted LLM. That is stated plainly rather than implied away: **nothing here
+evaluates real LLM synthesis or hallucination**, and `make eval` never touches
+the LiteLLM path.
+
+`retrieval_recall_at_5` is also not recall in the IR sense — there is no labelled
+relevant set, only an expected-hit assertion per query. It is named for what it
+approximates and should be read as a smoke test.
+
+### Determinism
+
+The engine claims determinism; three places did not honour it, all now fixed:
+
+- **RANSAC was unseeded.** `cv2.setRNGSeed` is now called, so registration is reproducible.
+- **Citation checking iterated a set.** `list(a)[:8]` over a set of strings follows `PYTHONHASHSEED`, so a different eight tokens were examined on every process. Now `sorted`. There is a subprocess test across five seeds.
+- **`delta_id` hashed only the change count.** Two runs finding the same *number* of entirely different changes produced the same id. Now hashes sorted item ids.
+
 ### Where it fails
 
 Honest, current, and reproduced by `make eval`:
@@ -130,6 +166,7 @@ Honest, current, and reproduced by `make eval`:
 | Scanned + CAD each report 1 FP | An added branch is reported as *two* findings — the geometry region and its valve label (`HV-205` / `HV-305`) — where ground truth labels the whole thing as one region | **Labeling granularity, not a detection defect.** The system arguably has this right; I left the ground truth alone rather than widen a label to improve a number |
 | CAD 1 FN | Same branch: the matched finding's centroid sits outside the 0.08 location tolerance | **Open.** Scoring should accept either the region or its label |
 | Native 1 FP | One low-confidence residual region | Open, low impact |
+| Retrieval misses `"isolation valve on the new branch"` | Lexical + spatial retrieval has no synonym knowledge; nothing links "isolation valve" to `HV-205` | **Open.** The clearest argument for adding embeddings, which the README previously dismissed on the strength of a recall figure that turned out to be measured on tautological queries |
 | DWG not end-to-end | No usable open-source DWG reader | **By design** — converter seam, explicit error |
 | Dense multi-sheet CAD | Registration/layout assumes one sheet per page | Rejects low-confidence registration rather than guessing |
 
@@ -152,7 +189,7 @@ A retrieval bug was also fixed: delta records carry their *neighbours'* tags, so
 
 ## Deliberate cuts
 
-- **No vector embeddings.** Lexical hybrid (exact tag + word/char TF-IDF + RRF) plus spatial re-rank hits recall@5 = 1.0 on this corpus. An embedding index would add a model dependency and latency for no measured gain — but it is the first thing to revisit on a larger corpus, where tag-name overlap stops being discriminative.
+- **No vector embeddings.** This was originally justified by recall@5 = 1.00 — a figure measured on two bare-tag queries that a lexical retriever cannot lose. On semantically phrased queries recall is **0.833**, and the miss (`"isolation valve"` → `HV-205`) is exactly the synonym gap embeddings close. The cut still stands for the time available, but the justification was wrong and is corrected here rather than quietly restated.
 - **No LLM in the delta path.** Alignment is a matching problem with exact coordinates available; a deterministic solver is reproducible and free. The LLM earns its place in answer synthesis, not change detection.
 - **Single-sheet assumption** in registration and grid estimation.
 - **No multi-user auth** — local demo boundary.

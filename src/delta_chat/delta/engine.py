@@ -432,14 +432,23 @@ def compute_delta(
         by_type[change.change_type] = by_type.get(change.change_type, 0) + 1
         by_band[change.confidence_band] = by_band.get(change.confidence_band, 0) + 1
 
+    # Hash the change content, not just how many there are. Keying on
+    # len(changes) meant two runs that found the same *number* of entirely
+    # different changes produced an identical delta_id, so the id could not be
+    # used to tell whether a delta actually changed. Item ids are already
+    # content-derived and sorted for order independence.
+    change_fingerprint = "|".join(sorted(c.delta_item_id for c in changes))
     delta_id = hashlib.sha1(
-        f"{doc_a.pid}|{doc_b.pid}|{config_hash(config)}|{len(changes)}".encode()
+        f"{doc_a.pid}|{doc_b.pid}|{config_hash(config)}|"
+        f"{len(changes)}|{change_fingerprint}".encode()
     ).hexdigest()[:12]
 
     return DeltaReport(
         delta_id=delta_id,
         pid_a=doc_a.pid,
         pid_b=doc_b.pid,
+        revision_a=doc_a.revision_label,
+        revision_b=doc_b.revision_label,
         pair_compatibility=compat,
         config_hash=config_hash(config),
         summary={

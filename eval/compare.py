@@ -26,7 +26,7 @@ TRACKED_METRICS: dict[str, tuple[bool, float]] = {
     "scanned_delta_f1": (True, 0.05),
     "cad_delta_f1": (True, 0.02),
     "pair_mismatch_accuracy": (True, 0.0),
-    "citation_validity": (True, 0.0),
+    "citation_groundedness": (True, 0.0),
     "unsupported_refusal_accuracy": (True, 0.0),
     "chat_fact_accuracy": (True, 0.05),
     "retrieval_recall_at_5": (True, 0.05),
@@ -59,6 +59,15 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
     rows: list[dict[str, Any]] = []
     regressions: list[dict[str, Any]] = []
     improvements: list[dict[str, Any]] = []
+
+    # Scores only mean the same thing when the questions are the same. Adding
+    # harder cases legitimately lowers a score without the system getting worse,
+    # and reporting that as a regression trains people to ignore the tool. When
+    # the dataset differs the numbers are still shown, but as information rather
+    # than a verdict.
+    base_dataset = baseline.get("dataset_hash")
+    cur_dataset = current.get("dataset_hash")
+    dataset_changed = bool(base_dataset and cur_dataset and base_dataset != cur_dataset)
 
     for metric, (higher_is_better, tolerance) in TRACKED_METRICS.items():
         base_value = _as_float(baseline.get(metric))
@@ -122,11 +131,17 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
         "current_run_id": current.get("run_id"),
         "baseline_git_sha": baseline.get("git_sha"),
         "current_git_sha": current.get("git_sha"),
+        "baseline_dataset_hash": base_dataset,
+        "current_dataset_hash": cur_dataset,
+        "dataset_changed": dataset_changed,
         "rows": rows,
         "latency": latency_row,
         "improvements": improvements,
         "regressions": regressions,
-        "has_regression": bool(regressions),
+        # Differences are real either way, but only attributable to the system
+        # when both runs answered the same questions.
+        "has_regression": bool(regressions) and not dataset_changed,
+        "regressions_not_attributable": bool(regressions) and dataset_changed,
     }
 
 
@@ -150,9 +165,11 @@ def render(result: dict[str, Any]) -> str:
     for row in result["rows"]:
         if row["status"] == "absent":
             continue
-        base = "—" if row.get("baseline") is None else f"{row['baseline']:.4f}"
-        cur = "—" if row.get("current") is None else f"{row['current']:.4f}"
-        delta = "—" if row.get("delta") is None else f"{row['delta']:+.4f}"
+        # ASCII placeholders: this prints to a cp1252 console where an em dash
+        # renders as a replacement character.
+        base = "n/a" if row.get("baseline") is None else f"{row['baseline']:.4f}"
+        cur = "n/a" if row.get("current") is None else f"{row['current']:.4f}"
+        delta = "n/a" if row.get("delta") is None else f"{row['delta']:+.4f}"
         mark = arrow.get(row["status"], " ")
         lines.append(f"{row['metric']:<32}{base:>10}{cur:>10}{delta:>10}  {mark} {row['status']}")
 
@@ -164,8 +181,25 @@ def render(result: dict[str, Any]) -> str:
         )
 
     lines.append("")
+    if result.get("dataset_changed"):
+        lines += [
+            "NOTE: the eval dataset changed between these runs",
+            f"      baseline dataset {result.get('baseline_dataset_hash')}",
+            f"      current  dataset {result.get('current_dataset_hash')}",
+            "      Scores are not directly comparable. Differences below may",
+            "      reflect harder questions rather than a worse system.",
+            "      Re-baseline deliberately once the new dataset is accepted.",
+            "",
+        ]
+
     if result["has_regression"]:
         lines.append(f"REGRESSIONS: {len(result['regressions'])}")
+        for row in result["regressions"]:
+            lines.append(f"  - {row['metric']} ({row['status']})")
+    elif result.get("regressions_not_attributable"):
+        lines.append(
+            f"Differences (not attributable, dataset changed): {len(result['regressions'])}"
+        )
         for row in result["regressions"]:
             lines.append(f"  - {row['metric']} ({row['status']})")
     else:

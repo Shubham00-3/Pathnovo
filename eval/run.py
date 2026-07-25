@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -121,12 +122,12 @@ def build_failure_table(
                     "detail": "answer did not contain the expected fact",
                 }
             )
-        if float(score.get("citation_validity") or 1.0) < 1.0:
+        if float(score.get("citation_groundedness") or 1.0) < 1.0:
             failures.append(
                 {
-                    "kind": "citation_invalid",
+                    "kind": "citation_not_grounded",
                     "case_id": label,
-                    "detail": "answer cited a source id that is not retrievable",
+                    "detail": "cited evidence does not contain the expected value",
                 }
             )
         if "refusal_ok" in score and not score.get("refusal_ok"):
@@ -158,7 +159,8 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     mismatch_total = 0
     retrieval_hits = 0
     retrieval_total = 0
-    citation_validity_vals: list[float] = []
+    citation_grounded_vals: list[float] = []
+    groundedness_measured_count = 0
     refusal_ok_vals: list[float] = []
     required_failures: list[str] = []
     run_dirs: list[Path] = []
@@ -284,7 +286,9 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
                 j["case_id"] = case_id
                 j["qa_id"] = qa["id"]
                 chat_scores.append(j)
-                citation_validity_vals.append(float(j.get("citation_validity") or 0.0))
+                citation_grounded_vals.append(float(j.get("citation_groundedness") or 0.0))
+                if j.get("groundedness_measured"):
+                    groundedness_measured_count += 1
                 if "unsupported" in qa:
                     refusal_ok_vals.append(1.0 if j["refusal_ok"] else 0.0)
                 case_out.setdefault("qa", []).append({"id": qa["id"], "answer": ans, "judge": j})
@@ -325,8 +329,8 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     chat_fact = sum(1 for c in chat_scores if c.get("fact_ok")) / max(1, len(chat_scores))
     cite_prec = sum(c.get("citation_precision", 1) for c in chat_scores) / max(1, len(chat_scores))
     cite_val = (
-        sum(citation_validity_vals) / max(1, len(citation_validity_vals))
-        if citation_validity_vals
+        sum(citation_grounded_vals) / max(1, len(citation_grounded_vals))
+        if citation_grounded_vals
         else 0.0
     )
     refusal_acc = sum(refusal_ok_vals) / max(1, len(refusal_ok_vals)) if refusal_ok_vals else 1.0
@@ -360,7 +364,9 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
     gate_results["pair_mismatch_accuracy"] = mismatch_acc >= float(
         gates.get("pair_mismatch_accuracy", 1.0)
     )
-    gate_results["citation_validity"] = cite_val >= float(gates.get("citation_validity", 1.0))
+    gate_results["citation_groundedness"] = cite_val >= float(
+        gates.get("citation_groundedness", 1.0)
+    )
     gate_results["unsupported_refusal"] = refusal_acc >= float(
         gates.get("unsupported_refusal", 1.0)
     )
@@ -371,6 +377,12 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
         "seed": dataset.get("seed", eval_cfg.get("seed")),
         "git_sha": _git_sha(),
         "config_hash": config_hash(cfg),
+        # Fingerprint of the questions themselves. Scores are only comparable
+        # across runs that asked the same things; without this a harder dataset
+        # is indistinguishable from a worse system.
+        "dataset_hash": hashlib.sha256(
+            ds_path.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest()[:16],
         "ocr_available": ocr_ok,
         "ocr_backend": _ocr_backend_name(cfg),
         "cad_available": cad_ok,
@@ -382,7 +394,9 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
         "retrieval_recall_at_5": retrieval_r5,
         "chat_fact_accuracy": round(chat_fact, 4),
         "citation_precision": round(cite_prec, 4),
-        "citation_validity": round(cite_val, 4),
+        "citation_groundedness": round(cite_val, 4),
+        "citation_groundedness_n_measured": groundedness_measured_count,
+        "chat_qa_total": len(chat_scores),
         "unsupported_refusal_accuracy": round(refusal_acc, 4),
         "required_failures": required_failures,
         "cases": [
@@ -430,7 +444,7 @@ def run_eval(dataset_path: str = "eval/datasets/v1.yaml") -> dict[str, Any]:
         f"- Scanned delta F1: **{scanned_f1}**",
         f"- CAD delta F1: **{cad_f1}**",
         f"- Pair mismatch accuracy: **{mismatch_acc}**",
-        f"- Citation validity: **{cite_val}**",
+        f"- Citation groundedness: **{cite_val}** (asserted on {groundedness_measured_count}/{len(chat_scores)} Q&A)",
         f"- Unsupported refusal: **{refusal_acc}**",
         f"- Chat fact accuracy: **{chat_fact}**",
         f"- Retrieval R@5: **{retrieval_r5}**",
