@@ -2,6 +2,12 @@ render_dpi: 150
 scan_render_dpi: 200
 max_pages: 20
 max_file_bytes: 104857600
+max_render_pixels: 20000000
+max_elements_per_page: 3000
+max_total_elements: 20000
+max_ocr_words_per_page: 10000
+max_chars_per_element: 20000
+max_total_text_chars: 2000000
 
 detection:
   min_native_text_chars: 80
@@ -9,18 +15,26 @@ detection:
   max_image_coverage: 0.55
 
 ocr:
+  # auto | rapidocr | tesseract. `auto` walks backend_priority and uses the
+  # first available engine, so a clean `pip install` has a working scanned path.
+  backend: auto
+  backend_priority: [rapidocr, tesseract]
   lang: eng
-  min_confidence: 40
-  psm: 6
+  min_confidence: 40   # 0-100; the rapidocr backend rescales to 0-1
+  psm: 6               # tesseract only
+  # Canny contour clusters are not revision-stable on rasters; see scanned_pdf.py.
+  emit_contour_regions: false
 
 registration:
   max_features: 2000
+  max_image_pixels: 20000000
   min_inliers: 12
   max_reproj_error: 8.0
   min_confidence: 0.35
   border_mask_ratio: 0.04
 
 matching:
+  max_pair_comparisons: 2000000
   spatial_radius_norm: 0.12
   min_match_score: 0.42
   move_centroid_tol: 0.018
@@ -34,6 +48,7 @@ matching:
 
 visual_diff:
   enabled: true
+  max_image_pixels: 20000000
   min_component_area: 400
   max_components: 20
   residual_threshold: 40
@@ -52,16 +67,19 @@ retrieval:
   top_k: 8
   rrf_k: 60
   use_embeddings: false
+  # Spatial re-rank for "what changed near <tag>" style questions.
+  proximity_weight: 0.6
+  proximity_radius_norm: 0.18
 
 llm:
   provider: extractive
   model: ""
   temperature: 0.0
   max_tokens: 800
-  capture_content: true
+  capture_content: false
 
 observability:
-  capture_llm_content: true
+  capture_llm_content: false
   write_traces: true
 
 paths:
