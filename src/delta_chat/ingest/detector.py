@@ -15,6 +15,27 @@ def _read_magic(path: Path, n: int = 16) -> bytes:
         return f.read(n)
 
 
+DXF_BINARY_SENTINEL = b"AutoCAD Binary DXF"
+
+
+def _looks_like_dxf(path: Path, magic: bytes) -> bool:
+    """Content sniff for ASCII and binary DXF (neither has a magic number)."""
+    if magic.startswith(DXF_BINARY_SENTINEL[: len(magic)]):
+        return True
+    try:
+        with path.open("rb") as f:
+            head = f.read(2048)
+    except OSError:
+        return False
+    if head.startswith(DXF_BINARY_SENTINEL):
+        return True
+    # ASCII DXF: group code 0 followed by SECTION, within the first few lines.
+    normalized = head.replace(b"\r\n", b"\n").lstrip()
+    if normalized.startswith(b"0\nSECTION") or b"\n0\nSECTION\n" in normalized[:512]:
+        return True
+    return path.suffix.lower() == ".dxf" and b"SECTION" in head
+
+
 def detect_format(path: Path | str, config: dict | None = None) -> dict[str, Any]:
     """Return detector signals and a chosen adapter name."""
     cfg = config or {}
@@ -22,23 +43,43 @@ def detect_format(path: Path | str, config: dict | None = None) -> dict[str, Any
     p = Path(path)
     if not p.exists():
         raise CorruptDocumentError(f"File not found: {p}")
+    file_size = p.stat().st_size
+    max_file_bytes = int(cfg.get("max_file_bytes", 100 * 1024 * 1024))
+    if file_size > max_file_bytes:
+        raise CorruptDocumentError(
+            f"Document exceeds the configured {max_file_bytes}-byte limit",
+            details={"path": str(p), "byte_size": file_size, "max_file_bytes": max_file_bytes},
+        )
 
     magic = _read_magic(p)
     signals: dict[str, Any] = {
         "path": str(p),
         "magic_hex": magic.hex(),
         "suffix": p.suffix.lower(),
-        "size": p.stat().st_size,
+        "size": file_size,
     }
 
-    # DWG magic AC10xx
+    # DWG magic AC10xx -- routed to the CAD adapter, which converts to DXF.
     if magic.startswith(b"AC10"):
         signals.update(
             {
                 "format_family": "dwg",
-                "adapter": "dwg",
+                "adapter": "dxf",
                 "is_pdf": False,
                 "reason": "DWG magic AC10xx",
+            }
+        )
+        return signals
+
+    # DXF has no magic number. ASCII DXF opens with a SECTION group code; binary
+    # DXF carries a sentinel string. Check content first and fall back to suffix.
+    if _looks_like_dxf(p, magic):
+        signals.update(
+            {
+                "format_family": "dxf",
+                "adapter": "dxf",
+                "is_pdf": False,
+                "reason": "DXF SECTION header or binary DXF sentinel",
             }
         )
         return signals
@@ -54,6 +95,12 @@ def detect_format(path: Path | str, config: dict | None = None) -> dict[str, Any
             ) from exc
         try:
             page_count = doc.page_count
+            max_pages = int(cfg.get("max_pages", 20))
+            if page_count > max_pages:
+                raise CorruptDocumentError(
+                    f"Document has {page_count} pages; configured limit is {max_pages}",
+                    details={"path": str(p), "page_count": page_count, "max_pages": max_pages},
+                )
             text_chars = 0
             vector_count = 0
             image_area = 0.0

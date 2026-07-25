@@ -24,11 +24,20 @@ def test_detect_pdf_magic(tmp_path: Path):
     assert signals["adapter"] in {"native_pdf", "scanned_pdf"}
 
 
-def test_dwg_visible_failure(tmp_path: Path):
+def test_dwg_routes_to_the_cad_adapter(tmp_path: Path):
+    """DWG now shares the CAD path, which converts to DXF before parsing."""
     p = tmp_path / "x.dwg"
     p.write_bytes(b"AC1027" + b"\x00" * 20)
     signals = detect_format(p)
-    assert signals["adapter"] == "dwg"
+    assert signals["adapter"] == "dxf"
+    assert signals["format_family"] == "dwg"
+
+
+def test_dwg_visible_failure(tmp_path: Path):
+    """The legacy DWG adapter stays reachable via force_adapter and still
+    explains what to install rather than failing opaquely."""
+    p = tmp_path / "x.dwg"
+    p.write_bytes(b"AC1027" + b"\x00" * 20)
     adapter = DwgAdapter()
     resolved = ResolvedDocument(
         pid="PID-DWG",

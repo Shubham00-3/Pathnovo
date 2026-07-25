@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
+from delta_chat.canonical.limits import enforce_revision_limits
 from delta_chat.canonical.serialization import dump_json
 from delta_chat.chat.service import ChatService
 from delta_chat.config import load_config, project_root
@@ -45,19 +47,29 @@ def run_pair(
     metrics = Metrics()
     telemetry = LLMTelemetry(
         ctx.run_dir / "llm_calls.jsonl",
-        capture_content=bool(cfg.get("llm", {}).get("capture_content", True)),
+        capture_content=bool(cfg.get("llm", {}).get("capture_content", False)),
     )
     errors_path = ctx.run_dir / "errors.jsonl"
 
     def log_error(exc: Exception) -> None:
-        payload = (
-            exc.to_dict()
-            if isinstance(exc, DeltaChatError)
-            else {"error_type": type(exc).__name__, "message": str(exc)}
-        )
+        payload: dict[str, Any] = {"error_type": type(exc).__name__}
+        if isinstance(exc, DeltaChatError):
+            payload["code"] = exc.code
         with errors_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload) + "\n")
         logger.emit("error", **payload)
+
+    def safe_detector_event(signals: dict[str, Any]) -> dict[str, Any]:
+        allowed = {
+            "adapter",
+            "format_family",
+            "image_coverage_est",
+            "page_count",
+            "size",
+            "text_chars_sample",
+            "vector_count_sample",
+        }
+        return {key: signals[key] for key in allowed if key in signals}
 
     request = {
         "request_id": ctx.request_id,
@@ -83,17 +95,19 @@ def run_pair(
 
         with tracer.span("ingest.a", pid=pid_a) as sp:
             doc_a, signals_a = ingest_document(resolved_a, out_dir=renders, config=cfg)
+            enforce_revision_limits(doc_a, cfg)
             sp["attributes"]["adapter"] = doc_a.adapter_name
             sp["attributes"]["elements"] = sum(len(p.elements) for p in doc_a.pages)
             metrics.incr("elements_a", sp["attributes"]["elements"])
-            logger.emit("format.detect.a", **signals_a)
+            logger.emit("format.detect.a", **safe_detector_event(signals_a))
 
         with tracer.span("ingest.b", pid=pid_b) as sp:
             doc_b, signals_b = ingest_document(resolved_b, out_dir=renders, config=cfg)
+            enforce_revision_limits(doc_b, cfg)
             sp["attributes"]["adapter"] = doc_b.adapter_name
             sp["attributes"]["elements"] = sum(len(p.elements) for p in doc_b.pages)
             metrics.incr("elements_b", sp["attributes"]["elements"])
-            logger.emit("format.detect.b", **signals_b)
+            logger.emit("format.detect.b", **safe_detector_event(signals_b))
 
         dump_json(ctx.run_dir / "canonical_a.json", doc_a.model_dump(mode="json"))
         dump_json(ctx.run_dir / "canonical_b.json", doc_b.model_dump(mode="json"))
@@ -109,14 +123,20 @@ def run_pair(
             metrics.set("delta_changes", len(report.changes))
             metrics.set("pair_compatibility", report.pair_compatibility)
 
-        paths = write_reports(report, ctx.run_dir)
-        logger.emit("report.written", **paths)
+        with tracer.span("report.write") as sp:
+            paths = write_reports(report, ctx.run_dir)
+            sp["attributes"]["formats"] = sorted(paths)
+            logger.emit(
+                "report.written",
+                artifacts=sorted(Path(path).name for path in paths.values()),
+            )
 
         with tracer.span("markup.overlay") as sp:
             markup_info = write_markup_pdf(
                 report,
                 source_pdf=resolved_b.path,
                 out_path=ctx.run_dir / "markup.pdf",
+                doc_b=doc_b,
             )
             sp["attributes"].update(markup_info)
 
@@ -167,7 +187,7 @@ def run_pair(
         metrics.incr_error(type(exc).__name__)
         metrics.write(ctx.run_dir / "metrics.json")
         tracer.write()
-        logger.emit("run.failed", error=str(exc))
+        logger.emit("run.failed", error_type=type(exc).__name__)
         raise
 
 
@@ -189,7 +209,7 @@ def chat_on_run(
     run_dir = Path(run_payload["run_dir"])
     parent_run_id = run_payload.get("request_id") or run_dir.name
 
-    capture = bool(cfg.get("llm", {}).get("capture_content", True))
+    capture = bool(cfg.get("llm", {}).get("capture_content", False))
     telemetry = run_payload.get("telemetry")
     if telemetry is None:
         from delta_chat.observability.llm_telemetry import LLMTelemetry
@@ -209,12 +229,16 @@ def chat_on_run(
     )
     logger = EventLogger(run_dir / "events.jsonl")
     metrics = Metrics.load(run_dir / "metrics.json")
-    logger.emit(
-        "chat.start",
-        chat_request_id=chat_rid,
-        parent_run_id=parent_run_id,
-        question=question[:500],
-    )
+    question_hash = hashlib.sha256(question.encode("utf-8")).hexdigest()[:16]
+    chat_start = {
+        "chat_request_id": chat_rid,
+        "parent_run_id": parent_run_id,
+        "question_chars": len(question),
+        "question_hash": question_hash,
+    }
+    if capture:
+        chat_start["question"] = question[:500]
+    logger.emit("chat.start", **chat_start)
 
     retriever = HybridRetriever(records, cfg)
     service = ChatService(
@@ -231,23 +255,39 @@ def chat_on_run(
         metrics.incr_error(type(exc).__name__)
         metrics.write(run_dir / "metrics.json")
         tracer.write()
-        logger.emit("chat.error", error=str(exc), chat_request_id=chat_rid)
+        logger.emit("chat.error", error_type=type(exc).__name__, chat_request_id=chat_rid)
         raise
 
     chat_path = run_dir / "chat.jsonl"
     with chat_path.open("a", encoding="utf-8") as f:
-        f.write(
-            json.dumps(
-                {
-                    "chat_request_id": chat_rid,
-                    "parent_run_id": parent_run_id,
-                    "question": question,
-                    "answer": answer.model_dump(mode="json"),
-                },
-                default=str,
-            )
-            + "\n"
-        )
+        answer_payload = answer.model_dump(mode="json")
+        if capture:
+            chat_record = {
+                "chat_request_id": chat_rid,
+                "parent_run_id": parent_run_id,
+                "content_captured": True,
+                "question": question,
+                "answer": answer_payload,
+            }
+        else:
+            answer_text = str(answer_payload.get("answer") or "")
+            chat_record = {
+                "chat_request_id": chat_rid,
+                "parent_run_id": parent_run_id,
+                "content_captured": False,
+                "question_hash": question_hash,
+                "question_chars": len(question),
+                "answer_hash": hashlib.sha256(answer_text.encode("utf-8")).hexdigest()[:16],
+                "answer_chars": len(answer_text),
+                "unsupported": bool(answer_payload.get("unsupported")),
+                "provider": answer_payload.get("provider"),
+                "citation_ids": [
+                    citation.get("source_id")
+                    for citation in answer_payload.get("citations") or []
+                    if isinstance(citation, dict)
+                ],
+            }
+        f.write(json.dumps(chat_record, default=str) + "\n")
 
     # Cumulative LLM metrics from telemetry object (already restored from jsonl)
     metrics.merge_llm(

@@ -20,6 +20,7 @@ uv.lock
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/*.tsbuildinfo
 
 # Project artifacts and private inputs
 artifacts/
@@ -30,6 +31,10 @@ data/samples/synthetic_native/**
 !data/samples/synthetic_native/.gitkeep
 data/samples/synthetic_scanned/**
 !data/samples/synthetic_scanned/.gitkeep
+data/samples/synthetic_secondary/**
+!data/samples/synthetic_secondary/.gitkeep
+data/samples/synthetic_cad/**
+!data/samples/synthetic_cad/.gitkeep
 *.pdf
 !docs/**/*.pdf
 
