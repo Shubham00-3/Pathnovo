@@ -34,3 +34,26 @@ def test_score_and_classify():
     assert 0 <= conf <= 1
     assert band in {"high", "medium", "low"}
     assert "match_score" in factors
+
+
+def test_numeric_change_is_not_hidden_by_high_fuzzy_similarity():
+    before = make_element(
+        pid="A",
+        page_number=1,
+        raw_text="Duty: 12000 Nm3/h",
+        bbox=[0.1, 0.1, 0.3, 0.2],
+    )
+    after = make_element(
+        pid="B",
+        page_number=1,
+        raw_text="Duty: 12500 Nm3/h",
+        bbox=[0.1, 0.1, 0.3, 0.2],
+    )
+    kind, _ = classify_match(
+        before,
+        after,
+        features={"text": 0.97, "geometry": 1.0},
+        matrix=None,
+        move_tol=0.02,
+    )
+    assert kind == "modified"

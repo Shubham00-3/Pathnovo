@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from delta_chat.canonical.coordinates import centroid_distance, transform_bbox_affine
 from delta_chat.canonical.models import CanonicalElement
+
+
+def _numeric_tokens(text: str) -> tuple[str, ...]:
+    """Return normalized engineering-number tokens from extracted text."""
+    return tuple(re.findall(r"(?<![A-Z])[-+]?\d+(?:[.,]\d+)?", (text or "").upper()))
+
+
+def _is_ocr(element: CanonicalElement) -> bool:
+    return (element.attributes or {}).get("source") == "ocr"
+
+
+def _whitespace_only_difference(a: str, b: str) -> bool:
+    """True when two strings differ only in whitespace placement."""
+    squashed_a = re.sub(r"\s+", "", a or "")
+    squashed_b = re.sub(r"\s+", "", b or "")
+    return bool(squashed_a) and squashed_a == squashed_b
 
 
 def classify_match(
@@ -21,7 +38,24 @@ def classify_match(
     text_same = (ea.normalized_text or "") == (eb.normalized_text or "")
     text_sim = float(features.get("text", 0.0))
     moved = dist > move_tol
-    content_changed = (not text_same) and text_sim < 0.92
+    numeric_changed = _numeric_tokens(ea.normalized_text) != _numeric_tokens(eb.normalized_text)
+    # Fuzzy similarity is useful for OCR noise, but it must never hide a changed
+    # engineering value such as 12000 -> 12500 or HH 245 -> HH 250.
+    content_changed = (not text_same) and (numeric_changed or text_sim < 0.92)
+    # Where the text came from OCR, word segmentation is an artifact of the
+    # recognizer, not of the drawing: "NOTE 10: See package" and
+    # "NOTE10:Seepackage" are the same ink. Reporting that as a modification is
+    # a false positive a reviewer has to triage. Only whitespace *placement* is
+    # forgiven -- if any glyph or digit differs the change still stands, so
+    # 12000 -> 12500 is unaffected. Native PDFs keep real spacing, so this is
+    # deliberately restricted to OCR-sourced elements on both sides.
+    if (
+        content_changed
+        and _is_ocr(ea)
+        and _is_ocr(eb)
+        and _whitespace_only_difference(ea.normalized_text, eb.normalized_text)
+    ):
+        content_changed = False
     # geometry-only elements: treat strong spatial as same content
     if not ea.normalized_text and not eb.normalized_text:
         content_changed = float(features.get("geometry", 1.0)) < 0.7
