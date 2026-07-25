@@ -1,5 +1,13 @@
 # DEMO.md — walkthrough (≤4 minutes)
 
+## 🎬 Recorded walkthrough — <https://youtu.be/A4WmxZW6JNU> (3½ min)
+
+Covers a structured delta, a grounded chat answer with citations, an unsupported-question refusal, the request trace with token and cost telemetry, and the eval scorecard with its limitations.
+
+Or try it live at <https://pathnovo-ievadaslya-el.a.run.app> (30–60s cold start), or follow the script below locally.
+
+> The video's chat runs Groq `openai/gpt-oss-20b` via LiteLLM. The committed eval baseline grades the deterministic `extractive` provider — the video states this explicitly, and so does the README.
+
 ## Start (pick one)
 
 **Docker (single command):**

@@ -6,6 +6,7 @@ Native PDF, scanned PDF, and CAD all ingest through one adapter interface into a
 
 | | |
 |---|---|
+| **Walkthrough (3½ min)** | **<https://youtu.be/A4WmxZW6JNU>** — delta, grounded chat, refusal, trace, scorecard |
 | **Live demo** | <https://pathnovo-ievadaslya-el.a.run.app> (allow 30–60s cold start) |
 | **Run everything** | `python scripts/verify.py` — ~60s, no `make` required |
 | **Stack** | Python · FastAPI · React (Vite) · Docker · Cloud Run |
@@ -18,6 +19,7 @@ Native PDF, scanned PDF, and CAD all ingest through one adapter interface into a
 
 | Question | Section |
 |---|---|
+| Can I just watch it work? | [Walkthrough video](https://youtu.be/A4WmxZW6JNU) (3½ min) or the [live demo](https://pathnovo-ievadaslya-el.a.run.app) |
 | How do I run it? | [Running it](#running-it) |
 | How is content aligned between revisions, and where does it break? | [Alignment](#alignment--the-hard-part) |
 | Where is the LLM, and where is it deliberately not? | [Where the LLM is, and is not](#where-the-llm-is-and-is-not) |
